@@ -6,6 +6,44 @@ Vector Cannon is a budget-aware, read-only model firing controller for repositor
 
 Point the same repository and prompt at multiple AI providers, cap the budget per shot, record what the model actually inspected, and compare cost against useful output instead of guessing from model reputation.
 
+## Quick start
+
+```bash
+git clone https://github.com/nobutakayamauchi/vector-cannon.git
+cd vector-cannon
+python -m pip install -e .
+vector-cannon providers
+```
+
+Set only the key for the provider you want to use. Never commit keys.
+
+```bash
+export UNOROUTER_API_KEY='...'
+# or AI_GATEWAY_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY /
+# GEMINI_API_KEY / TOGETHER_API_KEY / FIREWORKS_API_KEY / GROQ_API_KEY
+```
+
+Discover models where the provider exposes a model catalog:
+
+```bash
+vector-cannon models --provider unorouter --contains free
+vector-cannon models --provider vercel --contains astra
+```
+
+Then fire a bounded read-only repository shot:
+
+```bash
+vector-cannon fire \
+  --provider unorouter \
+  --model gpt-oss-120b:free \
+  --repo ../your-repo \
+  --prompt prompts/vector_cannon/repo_recon.md \
+  --max-usd 0.25 \
+  --tag free-recon-01
+```
+
+Run logs are written outside the target repository under `~/.vector-cannon/runs/` by default.
+
 ## Why
 
 Frontier models are getting better and more expensive at the same time. Meanwhile free tiers, promotional pricing, routers, and smaller models change constantly.
@@ -74,19 +112,22 @@ Vector Cannon fails closed when it cannot establish a trusted price. Depending o
 
 The budget controller is intended to prevent careless burns, not to replace provider-side spend limits.
 
-## Example
+For providers without trusted live pricing, pass current prices explicitly:
 
 ```bash
 vector-cannon fire \
-  --provider unorouter \
-  --model gpt-oss-120b:free \
+  --provider openai \
+  --model YOUR_MODEL_ID \
   --repo ../your-repo \
   --prompt prompts/vector_cannon/repo_recon.md \
-  --max-usd 0.25 \
-  --tag free-recon-01
+  --input-price-per-million CURRENT_INPUT_PRICE \
+  --output-price-per-million CURRENT_OUTPUT_PRICE \
+  --max-usd 1.00
 ```
 
-Then escalate only if the result leaves a material unresolved question.
+## Escalation example
+
+After a cheap/free reconnaissance shot, escalate only if a material question remains:
 
 ```bash
 vector-cannon fire \
@@ -100,6 +141,12 @@ vector-cannon fire \
 ```
 
 Model ids, prices, discounts, quotas, and availability change. Discover and verify the current provider state before treating an example as current truth.
+
+## Optional GitHub Issue FIRE channel
+
+The included `.github/workflows/vector-cannon.yml` can fire only when the repository owner opens an issue whose title starts with `[VECTOR-CANNON]`.
+
+Store provider keys as GitHub Actions repository secrets. The workflow accepts provider/model/budget fields from the issue body, but never accepts API keys or arbitrary provider URLs there.
 
 ## Philosophy
 
