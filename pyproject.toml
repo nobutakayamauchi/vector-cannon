@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vector-cannon"
+version = "0.1.0"
+description = "Budget-aware, read-only multi-provider model firing controller for repository analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+authors = [
+  { name = "Nobutaka Yamauchi" }
+]
+keywords = ["ai", "llm", "benchmark", "repository", "routing", "agents", "openai-compatible"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+vector-cannon = "right_arm.vector_cannon.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
