@@ -1,0 +1,171 @@
+name: Vector Cannon
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fire:
+    if: >-
+      startsWith(github.event.issue.title, '[VECTOR-CANNON]') &&
+      github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Vector Cannon
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Vector Cannon
+        run: pip install -e .
+
+      - name: Save issue command
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          Path('/tmp/vector-cannon-issue.txt').write_text(os.environ.get('ISSUE_BODY', ''), encoding='utf-8')
+          PY
+
+      - name: Parse and validate command
+        id: shot
+        run: |
+          python -m right_arm.vector_cannon.issue_command \
+            /tmp/vector-cannon-issue.txt \
+            --allowed-owner '${{ github.repository_owner }}' >> "$GITHUB_OUTPUT"
+
+      - name: Require selected provider key
+        env:
+          PROVIDER: ${{ steps.shot.outputs.provider }}
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          case "$PROVIDER" in
+            vercel) key="$AI_GATEWAY_API_KEY"; name=AI_GATEWAY_API_KEY ;;
+            openai) key="$OPENAI_API_KEY"; name=OPENAI_API_KEY ;;
+            openrouter) key="$OPENROUTER_API_KEY"; name=OPENROUTER_API_KEY ;;
+            unorouter) key="$UNOROUTER_API_KEY"; name=UNOROUTER_API_KEY ;;
+            gemini) key="$GEMINI_API_KEY"; name=GEMINI_API_KEY ;;
+            together) key="$TOGETHER_API_KEY"; name=TOGETHER_API_KEY ;;
+            fireworks) key="$FIREWORKS_API_KEY"; name=FIREWORKS_API_KEY ;;
+            groq) key="$GROQ_API_KEY"; name=GROQ_API_KEY ;;
+            *) echo "Unsupported provider: $PROVIDER" >&2; exit 1 ;;
+          esac
+          if [ -z "$key" ]; then
+            echo "$name repository secret is not configured for provider '$PROVIDER'." >&2
+            exit 1
+          fi
+
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.shot.outputs.target_repo }}
+          ref: ${{ steps.shot.outputs.target_ref }}
+          path: vector-cannon-target
+          fetch-depth: 1
+
+      - name: Fire
+        id: fire
+        continue-on-error: true
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          UNOROUTER_API_KEY: ${{ secrets.UNOROUTER_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set -u
+          args=(
+            --provider '${{ steps.shot.outputs.provider }}'
+            --model '${{ steps.shot.outputs.model }}'
+            --repo vector-cannon-target
+            --prompt '${{ steps.shot.outputs.prompt }}'
+            --max-usd '${{ steps.shot.outputs.max_usd }}'
+            --max-steps '${{ steps.shot.outputs.max_steps }}'
+            --max-output-tokens '${{ steps.shot.outputs.max_output_tokens }}'
+            --tag '${{ steps.shot.outputs.tag }}'
+            --json
+          )
+          if [ -n '${{ steps.shot.outputs.reasoning }}' ]; then
+            args+=(--reasoning '${{ steps.shot.outputs.reasoning }}')
+          fi
+          if [ -n '${{ steps.shot.outputs.input_price_per_million }}' ]; then
+            args+=(--input-price-per-million '${{ steps.shot.outputs.input_price_per_million }}')
+            args+=(--output-price-per-million '${{ steps.shot.outputs.output_price_per_million }}')
+          fi
+          vector-cannon fire "${args[@]}" > /tmp/vector-cannon-result.json 2> /tmp/vector-cannon-error.txt
+
+      - name: Build issue report
+        env:
+          FIRE_OUTCOME: ${{ steps.fire.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result_path = Path('/tmp/vector-cannon-result.json')
+          error_path = Path('/tmp/vector-cannon-error.txt')
+          out = ['## Vector Cannon result', '']
+          if os.environ.get('FIRE_OUTCOME') == 'success' and result_path.exists():
+              data = json.loads(result_path.read_text(encoding='utf-8'))
+              out.extend([
+                  f"- Provider: `{data['provider']}`",
+                  f"- Model: `{data['model']}`",
+                  f"- Reasoning: `{data.get('reasoning_effort') or 'default'}`",
+                  f"- Cost: **`${data['observed_cost']}`** (`{data['accounting_mode']}`)",
+                  f"- Pricing source: `{data['pricing_source']}`",
+                  f"- Input / output tokens: `{data['input_tokens']} / {data['output_tokens']}`",
+                  f"- Model turns / tool calls / files read: `{data['model_turns']} / {data['tool_calls']} / {len(data['files_read'])}`",
+                  f"- Stop reason: `{data['stop_reason']}`",
+              ])
+              if data.get('credit_before') is not None:
+                  out.append(f"- Exact provider credits: `${data['credit_before']}` → `${data['credit_after']}`")
+              out.extend([
+                  '',
+                  '> Accounting note: `credit_delta` is exact provider balance movement. `provider_reported` comes from provider usage metadata. `token_estimate` uses the supplied/live token prices and is not a balance reading.',
+                  '',
+                  '### Answer',
+                  '',
+                  data.get('answer', '')[:50000],
+                  '',
+                  '### Files read',
+                  '',
+              ])
+              files = data.get('files_read', [])
+              out.extend(f"- `{path}`" for path in files[:200])
+              if len(files) > 200:
+                  out.append(f"- … {len(files) - 200} more")
+          else:
+              err = error_path.read_text(encoding='utf-8', errors='replace') if error_path.exists() else 'Unknown failure.'
+              out.extend(['**Shot failed.**', '', '```text', err[-12000:], '```'])
+          Path('/tmp/vector-cannon-comment.md').write_text('\n'.join(out)[:64000], encoding='utf-8')
+          PY
+
+      - name: Comment result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment '${{ github.event.issue.number }}' --body-file /tmp/vector-cannon-comment.md
+
+      - name: Propagate shot failure
+        if: steps.fire.outcome != 'success'
+        run: exit 1
