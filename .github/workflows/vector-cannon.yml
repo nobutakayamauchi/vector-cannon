@@ -40,7 +40,7 @@ jobs:
       - name: Parse and validate command
         id: shot
         run: |
-          python -m right_arm.vector_cannon.issue_command \
+          python -m vector_cannon.issue_command \
             /tmp/vector-cannon-issue.txt \
             --allowed-owner '${{ github.repository_owner }}' >> "$GITHUB_OUTPUT"
 
