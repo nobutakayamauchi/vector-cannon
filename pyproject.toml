@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [project.scripts]
-vector-cannon = "right_arm.vector_cannon.cli:main"
+vector-cannon = "vector_cannon.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
