@@ -1,4 +1,4 @@
-from right_arm.vector_cannon.gateway import get_provider_spec
+from vector_cannon.gateway import get_provider_spec
 
 
 def test_unorouter_provider_is_fixed_and_keyed() -> None:
