@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -38,15 +39,29 @@ class ShotInferenceUsage:
 
 
 @dataclass(frozen=True)
+class InferenceWindowUsage:
+    window_start: str
+    window_end: str
+    inference_used: float | None
+    known_used: float
+    shot_count: int
+    unknown_shots: int
+    status: str
+
+
+@dataclass(frozen=True)
 class InferenceBudgetSummary:
     launcher: str
     total_inference: float | None
     latest_remaining: float | None
     total_used: float | None
     total_used_percent: float | None
-    latest_shot_used: float | None
-    latest_shot_percent: float | None
+    current_window_used: float | None
+    current_window_known_used: float
+    current_window_start: str | None
+    current_window_end: str | None
     shots: tuple[ShotInferenceUsage, ...]
+    windows: tuple[InferenceWindowUsage, ...]
     status: str
 
 
@@ -66,13 +81,15 @@ def _number(value: Any) -> float | None:
     return parsed
 
 
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _timestamp(value: str | None = None) -> str:
-    if value:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).isoformat()
-    return datetime.now(timezone.utc).isoformat()
+    return (_parse_time(value) if value else datetime.now(timezone.utc)).isoformat()
 
 
 def record_snapshot(
@@ -163,20 +180,21 @@ def _weakest_status(statuses: Iterable[str]) -> str:
 
 
 def _shot_usage(shot_id: str, rows: list[InferenceSnapshot]) -> ShotInferenceUsage:
+    rows = sorted(rows, key=lambda row: row.timestamp)
     starts = [row for row in rows if row.phase == "start"]
     ends = [row for row in rows if row.phase == "end"]
     start = starts[0] if starts else rows[0]
-    end = ends[-1] if ends else rows[-1]
+    end = ends[-1] if ends else None
 
     totals = [row.total_inference for row in rows if row.total_inference is not None]
     total = totals[-1] if totals else None
     start_remaining = start.remaining_inference
-    end_remaining = end.remaining_inference
+    end_remaining = end.remaining_inference if end is not None else None
     used = None
     percent = None
     statuses = [row.status for row in rows]
 
-    if start_remaining is not None and end_remaining is not None:
+    if end is not None and start_remaining is not None and end_remaining is not None:
         used = max(0.0, start_remaining - end_remaining)
         statuses.append("DERIVED")
         if total and total > 0:
@@ -188,7 +206,7 @@ def _shot_usage(shot_id: str, rows: list[InferenceSnapshot]) -> ShotInferenceUsa
         shot_id=shot_id,
         launcher=start.launcher,
         started_at=start.timestamp if starts else None,
-        ended_at=end.timestamp if ends else None,
+        ended_at=end.timestamp if end is not None else None,
         total_inference=total,
         start_remaining=start_remaining,
         end_remaining=end_remaining,
@@ -198,13 +216,64 @@ def _shot_usage(shot_id: str, rows: list[InferenceSnapshot]) -> ShotInferenceUsa
     )
 
 
+def _window_usage(
+    shots: tuple[ShotInferenceUsage, ...],
+    *,
+    window_hours: float,
+    anchor: datetime,
+    anchor_status: str,
+) -> tuple[InferenceWindowUsage, ...]:
+    buckets: dict[int, list[ShotInferenceUsage]] = {}
+    width_seconds = window_hours * 3600.0
+    for shot in shots:
+        if shot.started_at is None:
+            continue
+        started = _parse_time(shot.started_at)
+        index = math.floor((started - anchor).total_seconds() / width_seconds)
+        buckets.setdefault(index, []).append(shot)
+
+    windows: list[InferenceWindowUsage] = []
+    for index in sorted(buckets):
+        window_start = anchor + timedelta(hours=window_hours * index)
+        window_end = window_start + timedelta(hours=window_hours)
+        bucket = buckets[index]
+        known = sum(shot.inference_used or 0.0 for shot in bucket if shot.inference_used is not None)
+        unknown = sum(1 for shot in bucket if shot.inference_used is None)
+        used = known if unknown == 0 else None
+        statuses = [anchor_status] + [shot.status for shot in bucket]
+        if unknown:
+            statuses.append("UNKNOWN")
+        else:
+            statuses.append("DERIVED")
+        windows.append(
+            InferenceWindowUsage(
+                window_start=window_start.isoformat(),
+                window_end=window_end.isoformat(),
+                inference_used=used,
+                known_used=known,
+                shot_count=len(bucket),
+                unknown_shots=unknown,
+                status=_weakest_status(statuses),
+            )
+        )
+    return tuple(windows)
+
+
 def summarize_inference(
-    snapshots: Iterable[InferenceSnapshot], *, launcher: str
+    snapshots: Iterable[InferenceSnapshot],
+    *,
+    launcher: str,
+    window_hours: float = 5.0,
+    window_anchor: str | None = None,
 ) -> InferenceBudgetSummary:
+    if window_hours <= 0:
+        raise ValueError("window_hours must be positive")
     rows = [row for row in snapshots if row.launcher == launcher]
     rows.sort(key=lambda row: row.timestamp)
     if not rows:
-        return InferenceBudgetSummary(launcher, None, None, None, None, None, None, (), "UNKNOWN")
+        return InferenceBudgetSummary(
+            launcher, None, None, None, None, None, 0.0, None, None, (), (), "UNKNOWN"
+        )
 
     grouped: dict[str, list[InferenceSnapshot]] = {}
     for row in rows:
@@ -223,12 +292,29 @@ def summarize_inference(
         if total > 0:
             total_used_percent = total_used / total * 100.0
 
-    latest = shot_rows[-1] if shot_rows else None
-    statuses = [row.status for row in rows]
+    if window_anchor is not None:
+        anchor = _parse_time(window_anchor)
+        anchor_status = "DERIVED"
+    else:
+        shot_starts = [_parse_time(shot.started_at) for shot in shot_rows if shot.started_at is not None]
+        anchor = min(shot_starts) if shot_starts else _parse_time(rows[0].timestamp)
+        anchor_status = "ESTIMATED"
+
+    windows = _window_usage(
+        shot_rows,
+        window_hours=window_hours,
+        anchor=anchor,
+        anchor_status=anchor_status,
+    )
+    current = windows[-1] if windows else None
+
+    statuses = [row.status for row in rows] + [shot.status for shot in shot_rows]
     if total_used is not None:
         statuses.append("DERIVED")
     else:
         statuses.append("UNKNOWN")
+    if current is not None:
+        statuses.append(current.status)
 
     return InferenceBudgetSummary(
         launcher=launcher,
@@ -236,9 +322,12 @@ def summarize_inference(
         latest_remaining=latest_remaining,
         total_used=total_used,
         total_used_percent=total_used_percent,
-        latest_shot_used=latest.inference_used if latest else None,
-        latest_shot_percent=latest.consumption_percent if latest else None,
+        current_window_used=current.inference_used if current else None,
+        current_window_known_used=current.known_used if current else 0.0,
+        current_window_start=current.window_start if current else None,
+        current_window_end=current.window_end if current else None,
         shots=shot_rows,
+        windows=windows,
         status=_weakest_status(statuses),
     )
 
@@ -252,6 +341,9 @@ def _pct(value: float | None) -> str:
 
 
 def render_console(summary: InferenceBudgetSummary) -> str:
+    current_used = _fmt(summary.current_window_used)
+    if summary.current_window_used is None and summary.current_window_known_used > 0:
+        current_used += f" (known >= {_fmt(summary.current_window_known_used)})"
     lines = [
         "VECTOR CANNON / INFERENCE BUDGET",
         "────────────────────────────────",
@@ -262,7 +354,9 @@ def render_console(summary: InferenceBudgetSummary) -> str:
         f"TOTAL USED            {_fmt(summary.total_used)} ({_pct(summary.total_used_percent)})",
         f"REMAINING             {_fmt(summary.latest_remaining)}",
         "",
-        f"LATEST 5H/SHOT USED   {_fmt(summary.latest_shot_used)} ({_pct(summary.latest_shot_percent)})",
+        f"CURRENT 5H USED       {current_used}",
+        f"5H WINDOW START       {summary.current_window_start or 'UNKNOWN'}",
+        f"5H WINDOW END         {summary.current_window_end or 'UNKNOWN'}",
         "────────────────────────────────",
     ]
     if not summary.shots:
@@ -292,8 +386,14 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--note", default="")
     record.add_argument("--timestamp", default=None)
 
-    console = sub.add_parser("console", help="Render total and per-shot inference consumption.")
+    console = sub.add_parser("console", help="Render total and five-hour inference consumption.")
     console.add_argument("--launcher", required=True)
+    console.add_argument("--window-hours", type=float, default=5.0)
+    console.add_argument(
+        "--window-anchor",
+        default=None,
+        help="Known quota-window start as ISO-8601. If omitted, the first shot is an ESTIMATED anchor.",
+    )
     console.add_argument("--json", action="store_true")
     return parser
 
@@ -315,7 +415,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(asdict(snapshot), ensure_ascii=False, indent=2))
         return 0
 
-    summary = summarize_inference(load_snapshots(args.snapshot_file), launcher=args.launcher)
+    summary = summarize_inference(
+        load_snapshots(args.snapshot_file),
+        launcher=args.launcher,
+        window_hours=args.window_hours,
+        window_anchor=args.window_anchor,
+    )
     if args.json:
         print(json.dumps(asdict(summary), ensure_ascii=False, indent=2))
     else:
