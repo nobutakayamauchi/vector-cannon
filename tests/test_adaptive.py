@@ -144,6 +144,7 @@ def test_adaptive_loop_rejects_judge_scope_expansion() -> None:
             Judgment.from_dict(
                 jp(
                     "REPAIR",
+                    satisfied=("AC-001",),
                     unsatisfied=("AC-002",),
                     action={
                         "kind": "REPAIR",
@@ -243,8 +244,9 @@ def test_adaptive_loop_fails_closed_when_done_lacks_controller_success() -> None
         executor=executor,
     ).run(job())
 
-    assert run.state is AdaptiveState.BLOCKED
-    assert run.stop_reason == "DECISION_GATE_FAILED_CLOSED"
+    assert run.state is AdaptiveState.HUMAN_REQUIRED
+    assert run.stop_reason == "HUMAN_DECISION_REQUIRED"
+    assert "JUDGE_OUTPUT_INVALID" in run.final_judgment.reason_codes
     assert run.shots_fired == 1
 
 
