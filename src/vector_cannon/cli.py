@@ -8,6 +8,8 @@ from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from .adaptive import AdaptiveOrchestrator, AdaptiveState, JobSpec, RepositoryShotExecutor
+from .decision_gate import DecisionGate, DirectShotJudge
 from .direct import DirectShot
 from .doctrine import DoctrineAdvisor
 from .fireplan import FireControl
@@ -135,6 +137,37 @@ def build_parser() -> argparse.ArgumentParser:
     doctrine.add_argument("--limit", type=int, default=None)
     doctrine.add_argument("--json", action="store_true")
     doctrine.set_defaults(handler=_doctrine)
+
+    mission = subparsers.add_parser(
+        "mission",
+        help="Run a bounded adaptive coding mission with Jev-first decision gating.",
+    )
+    mission.add_argument("--job", required=True, type=Path, help="JobSpec JSON file.")
+    mission.add_argument("--repo", required=True, type=Path, help="Clean source Git repository.")
+    mission.add_argument(
+        "--session-dir",
+        required=True,
+        type=Path,
+        help="New directory for isolated staging, shot artifacts, and the cumulative patch.",
+    )
+    mission.add_argument("--codex-path", default="codex")
+    mission.add_argument("--jev-provider", choices=sorted(PROVIDER_SPECS), required=True)
+    mission.add_argument("--jev-model", required=True)
+    mission.add_argument("--jev-max-usd", type=_positive_decimal, default=Decimal("0.10"))
+    mission.add_argument("--sol-provider", choices=sorted(PROVIDER_SPECS), default=None)
+    mission.add_argument("--sol-model", default=None)
+    mission.add_argument("--sol-max-usd", type=_positive_decimal, default=Decimal("0.30"))
+    mission.add_argument("--astra-provider", choices=sorted(PROVIDER_SPECS), default=None)
+    mission.add_argument("--astra-model", default=None)
+    mission.add_argument("--astra-max-usd", type=_positive_decimal, default=Decimal("1.00"))
+    mission.add_argument("--log-dir", type=Path, default=None)
+    mission.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually fire Codex and decision models. Without this flag, only validate and print the plan.",
+    )
+    mission.add_argument("--json", action="store_true")
+    mission.set_defaults(handler=_mission)
     return parser
 
 
@@ -314,6 +347,130 @@ def _doctrine(args: argparse.Namespace) -> int:
         print(f"CONFIDENCE -> {recommendation.confidence}")
         print(f"EVIDENCE -> {recommendation.reason}")
     return 0
+
+
+def _load_job(path: Path) -> JobSpec:
+    path = path.expanduser()
+    if not path.is_file():
+        raise ValueError(f"Job spec does not exist: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Job spec is not valid JSON: {path}") from exc
+    return JobSpec.from_dict(payload)
+
+
+def _optional_decision_judge(
+    *,
+    name: str,
+    provider: str | None,
+    model: str | None,
+    max_usd: Decimal,
+    reasoning: str,
+    log_dir: Path | None,
+) -> DirectShotJudge | None:
+    if (provider is None) != (model is None):
+        raise ValueError(f"{name} requires both provider and model, or neither")
+    if provider is None or model is None:
+        return None
+    return DirectShotJudge(
+        name=name,
+        provider=provider,
+        model=model,
+        max_usd=max_usd,
+        reasoning_effort=reasoning,
+        log_dir=log_dir,
+    )
+
+
+def _mission(args: argparse.Namespace) -> int:
+    job = _load_job(args.job)
+    sol = _optional_decision_judge(
+        name="sol",
+        provider=args.sol_provider,
+        model=args.sol_model,
+        max_usd=args.sol_max_usd,
+        reasoning="medium",
+        log_dir=args.log_dir,
+    )
+    astra = _optional_decision_judge(
+        name="astra",
+        provider=args.astra_provider,
+        model=args.astra_model,
+        max_usd=args.astra_max_usd,
+        reasoning="high",
+        log_dir=args.log_dir,
+    )
+
+    plan = {
+        "job_id": job.job_id,
+        "repo": str(args.repo.expanduser()),
+        "session_dir": str(args.session_dir.expanduser()),
+        "max_shots": job.max_shots,
+        "decision_order": [
+            {"judge": "jev", "provider": args.jev_provider, "model": args.jev_model},
+            *(
+                [{"judge": "sol", "provider": args.sol_provider, "model": args.sol_model}]
+                if sol is not None else []
+            ),
+            *(
+                [{"judge": "astra", "provider": args.astra_provider, "model": args.astra_model}]
+                if astra is not None else []
+            ),
+        ],
+        "max_sol_judgments": job.max_sol_judgments,
+        "max_astra_judgments": job.max_astra_judgments,
+        "execute": bool(args.execute),
+    }
+    if not args.execute:
+        if args.json:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+        else:
+            print("VECTOR CANNON ADAPTIVE MISSION — DRY PLAN")
+            print(f"JOB -> {job.job_id}")
+            print(f"SHOTS -> max {job.max_shots}")
+            print("DECISION -> " + " -> ".join(item["judge"].upper() for item in plan["decision_order"]))
+            print(f"SOL LIMIT -> {job.max_sol_judgments}")
+            print(f"ASTRA LIMIT -> {job.max_astra_judgments}")
+            print("REAL AI EXECUTION -> 0")
+        return 0
+
+    jev = DirectShotJudge(
+        name="jev",
+        provider=args.jev_provider,
+        model=args.jev_model,
+        max_usd=args.jev_max_usd,
+        reasoning_effort="low",
+        log_dir=args.log_dir,
+    )
+    gate = DecisionGate(jev, sol=sol, astra=astra)
+    executor = RepositoryShotExecutor.create(
+        source_repo=args.repo,
+        session_dir=args.session_dir,
+        codex_path=args.codex_path,
+        execute=True,
+    )
+    run = AdaptiveOrchestrator(
+        decision_gate=gate,
+        executor=executor,
+    ).run(job)
+    patch_path = executor.write_cumulative_patch(args.session_dir / "final.patch")
+    payload = run.to_payload()
+    payload["session_dir"] = str(args.session_dir.expanduser().resolve())
+    payload["cumulative_patch"] = str(patch_path)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        print("VECTOR CANNON ADAPTIVE MISSION")
+        print(f"STATE -> {run.state.value}")
+        print(f"SHOTS -> {run.shots_fired}")
+        print(
+            "JUDGES -> "
+            f"jev={run.jev_judgments} sol={run.sol_judgments} astra={run.astra_judgments}"
+        )
+        print(f"STOP -> {run.stop_reason}")
+        print(f"PATCH -> {patch_path}")
+    return 0 if run.state is AdaptiveState.DONE else 1
 
 
 def main(argv: list[str] | None = None) -> int:
