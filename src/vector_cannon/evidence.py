@@ -29,6 +29,8 @@ class EvidencePack:
     worker_claim: dict[str, Any] | None
     usage: dict[str, Any]
     artifacts: dict[str, str]
+    scope_violations: tuple[str, ...] = ()
+    patch_apply_check: str | None = None
     prior_judgments: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
@@ -84,6 +86,14 @@ class EvidencePack:
             worker_claim=worker,
             usage=usage,
             artifacts=safe_artifacts,
+            scope_violations=tuple(
+                str(item) for item in (result.get("scope_violations") or [])
+                if isinstance(item, str)
+            ),
+            patch_apply_check=(
+                str(result.get("patch_apply_check"))
+                if result.get("patch_apply_check") is not None else None
+            ),
             prior_judgments=tuple(item for item in prior_judgments if isinstance(item, dict)),
         )
 
@@ -98,6 +108,8 @@ class EvidencePack:
                 "stop_reason": self.stop_reason,
                 "changed_files": list(self.changed_files),
                 "verification": list(self.verification),
+                "scope_violations": list(self.scope_violations),
+                "patch_apply_check": self.patch_apply_check,
             },
             "worker_claim": self.worker_claim,
             "usage": self.usage,
