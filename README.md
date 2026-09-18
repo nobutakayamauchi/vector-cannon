@@ -148,6 +148,68 @@ Future firing sequence:
 
 Every readiness message should correspond to a real system state. No fake telemetry.
 
+## Adaptive mission control — Jev first, Astra last
+
+Vector Cannon can now treat implementation and judgment as separate control layers.
+
+The decision path is intentionally asymmetric:
+
+1. **Controller** records facts: launcher state, changed files, patch verification, and test results.
+2. **Jev** makes the normal typed completion decision.
+3. **Sol** is used only when Jev explicitly escalates or returns invalid typed output.
+4. **Astra** is the last automated court. The default adaptive mission budget allows at most **one Astra judgment**.
+5. If the configured automated judgment budget is exhausted, the mission stops with `HUMAN_REQUIRED` instead of silently spending another expensive judgment.
+
+A `DONE` judgment is accepted only when every acceptance criterion is explicitly assessed, the controller reports `SUCCEEDED`, there are no scope violations, and controller verification passed.
+
+A job spec is normal JSON:
+
+```json
+{
+  "job_id": "demo-job",
+  "mission": "Create fixture-output.txt with the required contents.",
+  "acceptance_criteria": [
+    {"id": "AC-001", "description": "fixture-output.txt has the required contents"},
+    {"id": "AC-002", "description": "controller verification passes"}
+  ],
+  "allowed_files": ["fixture-output.txt"],
+  "verification_commands": [
+    ["python3", "-c", "from pathlib import Path; assert Path('fixture-output.txt').exists()"]
+  ],
+  "max_shots": 4,
+  "timeout_seconds": 120,
+  "max_sol_judgments": 2,
+  "max_astra_judgments": 1
+}
+```
+
+Inspect the mission plan without firing any AI:
+
+```bash
+vector-cannon mission \
+  --job ./job.json \
+  --repo ../target-repo \
+  --session-dir /tmp/vector-cannon-demo \
+  --jev-provider YOUR_PROVIDER \
+  --jev-model YOUR_JEV_MODEL \
+  --sol-provider YOUR_PROVIDER \
+  --sol-model YOUR_SOL_MODEL \
+  --astra-provider YOUR_PROVIDER \
+  --astra-model YOUR_ASTRA_MODEL
+```
+
+The plan-only form performs **zero AI executions**.
+
+Add `--execute` only when ready to run the mission. The source repository must be clean. Vector Cannon creates a private staging clone, fires Codex only inside isolated per-shot clones, independently verifies each patch in a separate clone, and carries successful patches forward only inside the staging repository. The original source repository is not modified. The final cumulative patch is written to `SESSION_DIR/final.patch`.
+
+This closes the adaptive control loop:
+
+```text
+JOB -> Shot -> Controller evidence -> Jev
+                              |-> DONE
+                              |-> CONTINUE / REPAIR / REVIEW -> next Shot
+                              |-> Sol -> Astra -> HUMAN_REQUIRED
+```
 ## Personal firing doctrine
 
 As the ledger grows, Vector Cannon should learn that different operators need different weapons at different times.
@@ -219,7 +281,7 @@ Treat repository filtering as a defensive boundary, not a formal DLP system. Do 
 
 ## Status
 
-v0.2 development line: **Inference Access Layer + Personal Vector Ledger**.
+v0.9 development line: **Jev-first Decision Gate + Adaptive Mission Control**.
 
 The MVP is intentionally smaller than the vision.
 
