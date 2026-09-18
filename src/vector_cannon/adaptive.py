@@ -55,6 +55,52 @@ class JobSpec:
         if not 0 <= self.max_astra_judgments <= 100:
             raise ValueError("max_astra_judgments must be between 0 and 100")
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "JobSpec":
+        if not isinstance(data, dict):
+            raise ValueError("job spec must be an object")
+        criteria_raw = data.get("acceptance_criteria")
+        if not isinstance(criteria_raw, list) or not criteria_raw:
+            raise ValueError("acceptance_criteria must be a non-empty array")
+        criteria: list[AcceptanceCriterion] = []
+        for item in criteria_raw:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or not isinstance(item.get("description"), str)
+            ):
+                raise ValueError("acceptance criteria require id and description strings")
+            criteria.append(AcceptanceCriterion(item["id"], item["description"]))
+
+        allowed = data.get("allowed_files")
+        if not isinstance(allowed, list) or any(not isinstance(item, str) for item in allowed):
+            raise ValueError("allowed_files must be an array of strings")
+
+        commands_raw = data.get("verification_commands")
+        if not isinstance(commands_raw, list) or not commands_raw:
+            raise ValueError("verification_commands must be a non-empty argv array list")
+        commands: list[tuple[str, ...]] = []
+        for argv in commands_raw:
+            if (
+                not isinstance(argv, list)
+                or not argv
+                or any(not isinstance(item, str) or not item for item in argv)
+            ):
+                raise ValueError("verification commands must be non-empty string arrays")
+            commands.append(tuple(argv))
+
+        return cls(
+            job_id=str(data.get("job_id") or ""),
+            mission=str(data.get("mission") or ""),
+            acceptance_criteria=tuple(criteria),
+            allowed_files=tuple(allowed),
+            verification_commands=tuple(commands),
+            max_shots=int(data.get("max_shots", 6)),
+            timeout_seconds=float(data.get("timeout_seconds", 120.0)),
+            max_sol_judgments=int(data.get("max_sol_judgments", 2)),
+            max_astra_judgments=int(data.get("max_astra_judgments", 1)),
+        )
+
 
 @dataclass(frozen=True)
 class ShotDirective:
