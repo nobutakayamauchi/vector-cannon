@@ -413,3 +413,91 @@ def run_repo_ticket(
     except KeyboardInterrupt:
         state("FAILED" if result["launch_count"] else "BLOCKED", "INTERRUPTED")
     return _safe_json(result)
+
+
+
+class RepositorySession:
+    """Stateful isolated repo used by a multi-shot adaptive mission.
+
+    Successful shot patches are committed only inside the private staging clone.
+    The user's source repository remains untouched. The cumulative patch can be
+    exported after the mission reaches DONE.
+    """
+
+    def __init__(
+        self,
+        *,
+        source_repo: Path,
+        session_dir: Path,
+        codex_path: str = "codex",
+        adapter: CodexCLI | None = None,
+    ) -> None:
+        self.source_repo = source_repo.expanduser().resolve()
+        self.session_dir = session_dir.expanduser().resolve()
+        if self.session_dir == self.source_repo or self.source_repo in self.session_dir.parents:
+            raise Blocked("SESSION_DIR_INSIDE_SOURCE_REPOSITORY")
+        self.original_commit = repository_identity(self.source_repo)
+        self.staging_repo = self.session_dir / "staging-repo"
+        self.shot_artifacts = self.session_dir / "shots"
+        if self.session_dir.exists():
+            raise Blocked("SESSION_DIR_ALREADY_EXISTS")
+        self.session_dir.mkdir(parents=True, mode=0o700)
+        _clone_at(self.source_repo, self.staging_repo, self.original_commit)
+        self.current_commit = self.original_commit
+        self.adapter = adapter or CodexCLI(codex_path)
+
+    def execute(
+        self,
+        *,
+        task_id: str,
+        instructions: str,
+        allowed_files: tuple[str, ...],
+        verification_commands: tuple[tuple[str, ...], ...],
+        timeout_seconds: float,
+        execute: bool = True,
+    ) -> dict[str, Any]:
+        ticket = {
+            "task_id": task_id,
+            "instructions": instructions,
+            "base_commit": self.current_commit,
+            "allowed_files": list(allowed_files),
+            "verification_commands": [list(argv) for argv in verification_commands],
+            "timeout_seconds": timeout_seconds,
+            "artifact_dir": str(self.shot_artifacts),
+            "target": "codex-cli",
+        }
+        result = run_repo_ticket(
+            ticket,
+            repo=self.staging_repo,
+            execute=execute,
+            adapter=self.adapter,
+        )
+        if execute and result.get("state") == "SUCCEEDED":
+            patch_raw = (result.get("artifacts") or {}).get("patch")
+            if not isinstance(patch_raw, str):
+                raise Blocked("SUCCEEDED_SHOT_MISSING_PATCH")
+            patch = Path(patch_raw)
+            _git(self.staging_repo, "apply", "--check", str(patch))
+            _git(self.staging_repo, "apply", str(patch))
+            _git(self.staging_repo, "add", "--all")
+            _git(
+                self.staging_repo,
+                "-c", "user.name=Vector Cannon",
+                "-c", "user.email=vector-cannon@localhost",
+                "commit", "--quiet", "-m", f"Vector Cannon internal shot {task_id}",
+            )
+            self.current_commit = _git(self.staging_repo, "rev-parse", "HEAD").decode().strip()
+        return result
+
+    def cumulative_patch(self) -> bytes:
+        return _git(
+            self.staging_repo,
+            "diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv",
+            self.original_commit, self.current_commit,
+        )
+
+    def write_cumulative_patch(self, path: Path) -> Path:
+        path = path.expanduser().resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.cumulative_patch())
+        return path
