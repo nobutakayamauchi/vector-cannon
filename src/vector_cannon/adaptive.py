@@ -25,6 +25,8 @@ class JobSpec:
     verification_commands: tuple[tuple[str, ...], ...]
     max_shots: int = 6
     timeout_seconds: float = 120.0
+    max_sol_judgments: int = 2
+    max_astra_judgments: int = 1
 
     def __post_init__(self) -> None:
         if not self.job_id.strip() or not self.mission.strip():
@@ -46,6 +48,10 @@ class JobSpec:
             raise ValueError("max_shots must be between 1 and 100")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if not 0 <= self.max_sol_judgments <= 100:
+            raise ValueError("max_sol_judgments must be between 0 and 100")
+        if not 0 <= self.max_astra_judgments <= 100:
+            raise ValueError("max_astra_judgments must be between 0 and 100")
 
 
 @dataclass(frozen=True)
@@ -139,13 +145,35 @@ class AdaptiveRun:
 
     @property
     def judge_calls(self) -> int:
-        return sum(len(step.decision.judgments) for step in self.steps)
+        return sum(
+            1
+            for step in self.steps
+            for item in step.decision.judgments
+            if item.judge in {"jev", "sol", "astra"}
+        )
+
+    @property
+    def jev_judgments(self) -> int:
+        return sum(step.decision.count("jev") for step in self.steps)
+
+    @property
+    def sol_judgments(self) -> int:
+        return sum(step.decision.count("sol") for step in self.steps)
+
+    @property
+    def astra_judgments(self) -> int:
+        return sum(step.decision.count("astra") for step in self.steps)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "state": self.state.value,
             "shots_fired": self.shots_fired,
             "judge_calls": self.judge_calls,
+            "judge_counts": {
+                "jev": self.jev_judgments,
+                "sol": self.sol_judgments,
+                "astra": self.astra_judgments,
+            },
             "stop_reason": self.stop_reason,
             "final_judgment": (
                 self.steps[-1].decision.to_payload()["final"] if self.steps else None
@@ -180,6 +208,8 @@ class AdaptiveOrchestrator:
         steps: list[AdaptiveStep] = []
         prior: list[dict[str, Any]] = []
         directive = self.planner.initial(job)
+        sol_used = 0
+        astra_used = 0
 
         for shot_number in range(1, job.max_shots + 1):
             result = self.executor.execute(directive)
@@ -199,7 +229,11 @@ class AdaptiveOrchestrator:
                 prior_judgments=prior,
             )
             try:
-                decision = self.decision_gate.decide(evidence)
+                decision = self.decision_gate.decide(
+                    evidence,
+                    allow_sol=sol_used < job.max_sol_judgments,
+                    allow_astra=astra_used < job.max_astra_judgments,
+                )
             except JudgeError:
                 return AdaptiveRun(
                     AdaptiveState.BLOCKED,
@@ -208,6 +242,9 @@ class AdaptiveOrchestrator:
                     "DECISION_GATE_FAILED_CLOSED",
                     shot_number,
                 )
+
+            sol_used += decision.count("sol")
+            astra_used += decision.count("astra")
 
             step = AdaptiveStep(
                 shot_number=shot_number,
