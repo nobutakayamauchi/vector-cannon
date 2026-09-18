@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vector-cannon"
-version = "0.1.0"
-description = "Budget-aware, read-only multi-provider model firing controller for repository analysis"
+version = "0.2.0"
+description = "Budget-aware multi-provider inference access and personal fire-control system"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 authors = [
   { name = "Nobutaka Yamauchi" }
 ]
-keywords = ["ai", "llm", "benchmark", "repository", "routing", "agents", "openai-compatible"]
+keywords = ["ai", "llm", "inference", "routing", "benchmark", "fire-control", "agents", "openai-compatible"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

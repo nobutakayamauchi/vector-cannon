@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from .direct import DirectShot
 from .gateway import GatewayError, PROVIDER_SPECS, make_gateway
+from .ledger import load_runs, summarize_runs
 from .runner import VectorCannon
 
 
@@ -33,12 +37,16 @@ def _nonnegative_decimal(value: str) -> Decimal:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vector-cannon",
-        description="Budget-aware, read-only repository model benchmark runner.",
+        description="Budget-aware multi-provider inference firing controller.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     providers = subparsers.add_parser("providers", help="List approved inference lanes and required key env vars.")
     providers.set_defaults(handler=_providers)
+
+    doctor = subparsers.add_parser("doctor", help="Show which approved inference lanes are locally armed.")
+    doctor.add_argument("--json", action="store_true", help="Print readiness as JSON.")
+    doctor.set_defaults(handler=_doctor)
 
     credits = subparsers.add_parser("credits", help="Show exact provider credit balance when supported.")
     credits.add_argument("--provider", choices=sorted(PROVIDER_SPECS), default="vercel")
@@ -48,6 +56,23 @@ def build_parser() -> argparse.ArgumentParser:
     models.add_argument("--provider", choices=sorted(PROVIDER_SPECS), default="vercel")
     models.add_argument("--contains", default="", help="Case-insensitive filter for model id/name.")
     models.set_defaults(handler=_models)
+
+    shot = subparsers.add_parser("shot", help="Fire one bounded direct inference shot without exposing a repository.")
+    shot.add_argument("--provider", choices=sorted(PROVIDER_SPECS), default="vercel")
+    shot.add_argument("--model", required=True, help="Provider model id.")
+    prompt_group = shot.add_mutually_exclusive_group(required=True)
+    prompt_group.add_argument("--text", help="Prompt text to fire directly.")
+    prompt_group.add_argument("--prompt-file", type=Path, help="UTF-8 prompt file to fire directly.")
+    shot.add_argument("--system-file", type=Path, default=None, help="Optional UTF-8 system prompt override.")
+    shot.add_argument("--reasoning", choices=["none", "minimal", "low", "medium", "high", "xhigh", "extra_high", "max"], default=None)
+    shot.add_argument("--max-usd", type=_positive_decimal, default=Decimal("1.00"), help="Best-effort per-shot cost ceiling.")
+    shot.add_argument("--max-output-tokens", type=int, default=6000, help="Maximum output tokens for the shot.")
+    shot.add_argument("--input-price-per-million", type=_nonnegative_decimal, default=None, help="Manual USD per 1M input tokens when provider pricing is unavailable.")
+    shot.add_argument("--output-price-per-million", type=_nonnegative_decimal, default=None, help="Manual USD per 1M output tokens when provider pricing is unavailable.")
+    shot.add_argument("--tag", default="direct-shot", help="Run label included in provider metadata and local ledger.")
+    shot.add_argument("--log-dir", type=Path, default=None, help="Optional ledger directory; defaults to ~/.vector-cannon/runs.")
+    shot.add_argument("--json", action="store_true", help="Print the complete shot result as JSON.")
+    shot.set_defaults(handler=_shot)
 
     fire = subparsers.add_parser("fire", help="Fire one bounded read-only repository shot.")
     fire.add_argument("--provider", choices=sorted(PROVIDER_SPECS), default="vercel")
@@ -64,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
     fire.add_argument("--log-dir", type=Path, default=None, help="Optional log directory; defaults outside the target repo.")
     fire.add_argument("--json", action="store_true", help="Print the complete run result as JSON.")
     fire.set_defaults(handler=_fire)
+
+    ledger = subparsers.add_parser("ledger", help="Summarize personal firing history by provider and model.")
+    ledger.add_argument("--log-dir", type=Path, default=None, help="Ledger directory; defaults to ~/.vector-cannon/runs.")
+    ledger.add_argument("--limit", type=int, default=None, help="Only inspect the newest N run files.")
+    ledger.add_argument("--json", action="store_true", help="Print summary as JSON.")
+    ledger.set_defaults(handler=_ledger)
     return parser
 
 
@@ -72,6 +103,32 @@ def _providers(args: argparse.Namespace) -> int:
         meter = "exact-credit" if spec.has_exact_credit_meter else "token-metered"
         pricing = "live-catalog" if spec.catalog_pricing_per_token else "manual-price-if-needed"
         print(f"{provider_id}\tkey={spec.key_env}\t{meter}\t{pricing}\t{spec.base_url}")
+    return 0
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    rows = []
+    for provider_id, spec in sorted(PROVIDER_SPECS.items()):
+        configured = bool(os.getenv(spec.key_env))
+        rows.append(
+            {
+                "provider": provider_id,
+                "status": "READY" if configured else "UNARMED",
+                "key_env": spec.key_env,
+                "base_url": spec.base_url,
+                "exact_credit_meter": spec.has_exact_credit_meter,
+                "live_catalog_pricing": spec.catalog_pricing_per_token,
+            }
+        )
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    else:
+        for row in rows:
+            print(
+                f"{row['status']}\t{row['provider']}\tkey={row['key_env']}\t"
+                f"credit={'exact' if row['exact_credit_meter'] else 'token'}\t"
+                f"pricing={'live' if row['live_catalog_pricing'] else 'manual-if-needed'}"
+            )
     return 0
 
 
@@ -102,6 +159,51 @@ def _models(args: argparse.Namespace) -> int:
     return 0
 
 
+def _shot(args: argparse.Namespace) -> int:
+    if args.max_output_tokens < 1:
+        raise ValueError("--max-output-tokens must be >= 1")
+    if args.prompt_file is not None:
+        prompt_file = args.prompt_file.expanduser()
+        if not prompt_file.is_file():
+            raise ValueError(f"Prompt file does not exist: {prompt_file}")
+        prompt = prompt_file.read_text(encoding="utf-8")
+    else:
+        prompt = str(args.text or "")
+
+    system_prompt = None
+    if args.system_file is not None:
+        system_file = args.system_file.expanduser()
+        if not system_file.is_file():
+            raise ValueError(f"System prompt file does not exist: {system_file}")
+        system_prompt = system_file.read_text(encoding="utf-8")
+
+    result = DirectShot().fire(
+        provider=args.provider,
+        model=args.model,
+        prompt=prompt,
+        system_prompt=system_prompt,
+        reasoning_effort=args.reasoning,
+        max_usd=args.max_usd,
+        max_output_tokens=args.max_output_tokens,
+        input_price_per_million=args.input_price_per_million,
+        output_price_per_million=args.output_price_per_million,
+        tag=args.tag,
+        log_dir=args.log_dir,
+    )
+    if args.json:
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    else:
+        credits = f" credits=${result.credit_before}->${result.credit_after}" if result.credit_before is not None else ""
+        print(
+            f"FIRE {result.tag}: provider={result.provider} model={result.model} cost=${result.observed_cost} "
+            f"accounting={result.accounting_mode}{credits} tokens={result.input_tokens}/{result.output_tokens} "
+            f"time={result.elapsed_seconds}s stop={result.stop_reason}"
+        )
+        print("\n--- MODEL ANSWER ---\n")
+        print(result.answer)
+    return 0
+
+
 def _fire(args: argparse.Namespace) -> int:
     if args.max_steps < 1:
         raise ValueError("--max-steps must be >= 1")
@@ -123,13 +225,38 @@ def _fire(args: argparse.Namespace) -> int:
         log_dir=args.log_dir,
     )
     if args.json:
-        from dataclasses import asdict
         print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     else:
         credits = f" credits=${result.credit_before}->${result.credit_after}" if result.credit_before is not None else ""
         print(f"SHOT {result.tag}: provider={result.provider} model={result.model} cost=${result.observed_cost} accounting={result.accounting_mode}{credits} tokens={result.input_tokens}/{result.output_tokens} turns={result.model_turns} tools={result.tool_calls} files={len(result.files_read)} stop={result.stop_reason}")
         print("\n--- MODEL ANSWER ---\n")
         print(result.answer)
+    return 0
+
+
+def _ledger(args: argparse.Namespace) -> int:
+    runs = load_runs(args.log_dir, limit=args.limit)
+    rows = summarize_runs(runs)
+    if args.json:
+        payload = [
+            {
+                **asdict(row),
+                "total_cost": str(row.total_cost),
+                "average_seconds": round(row.average_seconds, 3),
+            }
+            for row in rows
+        ]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("No Vector Cannon firing records found.")
+        return 0
+    print("SHOTS\tCOST\tAVG_S\tFAIL\tTOKENS_IN/OUT\tPROVIDER\tMODEL")
+    for row in rows:
+        print(
+            f"{row.shots}\t${row.total_cost}\t{row.average_seconds:.3f}\t{row.failures}\t"
+            f"{row.input_tokens}/{row.output_tokens}\t{row.provider}\t{row.model}"
+        )
     return 0
 
 
