@@ -268,12 +268,22 @@ def _usage(ticket: Ticket) -> dict[str, Any]:
 class CodexCLI:
     executable: str = "codex"
     simulated: bool = False  # test seam; never selected as fallback or by the public CLI
+    legacy_landlock: bool = False
 
     def path(self) -> str | None:
         return shutil.which(self.executable)
 
+    def _prefix(self) -> list[str]:
+        prefix = [self.path() or self.executable]
+        if self.legacy_landlock:
+            prefix += ["--enable", "use_legacy_landlock"]
+        return prefix
+
+    def help_argv(self) -> list[str]:
+        return [*self._prefix(), "exec", "--help"]
+
     def argv(self, response: Path, schema: Path) -> list[str]:
-        return [self.path() or self.executable, "exec", "--sandbox", "workspace-write", "--json",
+        return [*self._prefix(), "exec", "--sandbox", "workspace-write", "--json",
                 "--output-schema", str(schema), "--output-last-message", str(response), "-"]
 
     def readiness(self) -> dict[str, Any]:
@@ -281,7 +291,8 @@ class CodexCLI:
         return {"target": "codex-cli", "mode": "SIMULATED" if self.simulated else "REAL",
                 "executable": self.path(), "availability": "FOUND" if found else "BLOCKED",
                 "reason": None if found else "CLI_NOT_FOUND", "syntax_source": CLI_DOC,
-                "local_help": "UNVERIFIED", "real_ai_connection": "UNVERIFIED"}
+                "local_help": "UNVERIFIED", "real_ai_connection": "UNVERIFIED",
+                "linux_sandbox_backend": "LEGACY_LANDLOCK" if self.legacy_landlock else "DEFAULT"}
 
 
 class _Lock:
@@ -475,7 +486,7 @@ def run_ticket(data: dict[str, Any], *, repo: Path, w02_patch: Path,
             result["artifacts"]["result"] = str(run_dir / "result.json")
             state("NOT_STARTED", "PREFLIGHT")
             # Help does not execute an AI task. Its evidence is distinct from connectivity.
-            help_result = _process([adapter.path(), "exec", "--help"], repo, time.monotonic() + 5,
+            help_result = _process(adapter.help_argv(), repo, time.monotonic() + 5,
                                    run_dir / "cli-help", lock_fd=lock.fd)
             result["cli_help"] = help_result
             help_text = "".join(Path(help_result[key]).read_text() for key in ("stdout", "stderr") if key in help_result)
@@ -574,12 +585,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--w02-patch", required=True, type=Path)
     parser.add_argument("--codex-path", default="codex")
+    parser.add_argument("--legacy-landlock", action="store_true",
+                        help="Use Codex legacy Landlock Linux sandbox instead of the default backend")
     parser.add_argument("--execute", action="store_true", help="Explicitly launch once; default is dry-run")
     args = parser.parse_args(argv)
     try:
         data = json.loads(args.ticket.read_text(encoding="utf-8"))
         result = run_ticket(data, repo=args.repo, w02_patch=args.w02_patch,
-                            execute=args.execute, adapter=CodexCLI(args.codex_path))
+                            execute=args.execute,
+                            adapter=CodexCLI(args.codex_path, legacy_landlock=args.legacy_landlock))
     except (OSError, ValueError) as exc:
         result = {"state": "BLOCKED", "stop_reason": str(exc), "launch_count": 0}
     print(json.dumps(_safe_json(result), ensure_ascii=False, indent=2, allow_nan=False))
