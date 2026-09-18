@@ -101,6 +101,7 @@ def test_adaptive_loop_repair_then_done() -> None:
                 jp(
                     "REPAIR",
                     satisfied=("AC-001",),
+                    satisfied=("AC-001",),
                     unsatisfied=("AC-002",),
                     action={
                         "kind": "REPAIR",
@@ -174,6 +175,7 @@ def test_adaptive_loop_stops_at_max_shots() -> None:
             Judgment.from_dict(
                 jp(
                     "CONTINUE",
+                    satisfied=("AC-001",),
                     unknown=("AC-002",),
                     action={
                         "kind": "CONTINUE",
@@ -204,6 +206,7 @@ def test_adaptive_loop_stops_for_human_decision() -> None:
             Judgment.from_dict(
                 jp(
                     "ESCALATE",
+                    satisfied=("AC-001",),
                     unknown=("AC-002",),
                     escalate_to="human",
                     confidence="medium",
@@ -244,3 +247,80 @@ def test_adaptive_loop_fails_closed_when_done_lacks_controller_success() -> None
     assert run.state is AdaptiveState.BLOCKED
     assert run.stop_reason == "DECISION_GATE_FAILED_CLOSED"
     assert run.shots_fired == 1
+
+
+
+def test_adaptive_loop_caps_astra_judgments_per_mission() -> None:
+    jev = QueueJudge(
+        "jev",
+        [
+            Judgment.from_dict(
+                jp("ESCALATE", unknown=("AC-001", "AC-002"), escalate_to="sol"),
+                judge="jev",
+            ),
+            Judgment.from_dict(
+                jp("ESCALATE", satisfied=("AC-001",), unknown=("AC-002",), escalate_to="sol"),
+                judge="jev",
+            ),
+        ],
+    )
+    sol = QueueJudge(
+        "sol",
+        [
+            Judgment.from_dict(
+                jp("ESCALATE", satisfied=("AC-001",), unknown=("AC-002",), escalate_to="astra"),
+                judge="sol",
+            ),
+            Judgment.from_dict(
+                jp("ESCALATE", satisfied=("AC-001",), unknown=("AC-002",), escalate_to="astra"),
+                judge="sol",
+            ),
+        ],
+    )
+    astra = QueueJudge(
+        "astra",
+        [
+            Judgment.from_dict(
+                jp(
+                    "REPAIR",
+                    satisfied=("AC-001",),
+                    unsatisfied=("AC-002",),
+                    action={
+                        "kind": "REPAIR",
+                        "goal": "repair once",
+                        "allowed_scope": ["fixture-output.txt"],
+                    },
+                ),
+                judge="astra",
+            )
+        ],
+    )
+    executor = QueueExecutor(
+        [
+            launcher_result("job-1-s001"),
+            launcher_result("job-1-s002"),
+        ]
+    )
+    limited = job()
+    limited = JobSpec(
+        job_id=limited.job_id,
+        mission=limited.mission,
+        acceptance_criteria=limited.acceptance_criteria,
+        allowed_files=limited.allowed_files,
+        verification_commands=limited.verification_commands,
+        max_shots=limited.max_shots,
+        timeout_seconds=limited.timeout_seconds,
+        max_sol_judgments=2,
+        max_astra_judgments=1,
+    )
+
+    run = AdaptiveOrchestrator(
+        decision_gate=DecisionGate(jev, sol=sol, astra=astra),
+        executor=executor,
+    ).run(limited)
+
+    assert run.state is AdaptiveState.HUMAN_REQUIRED
+    assert run.astra_judgments == 1
+    assert run.sol_judgments == 2
+    assert astra.calls == 1
+    assert "DECISION_BUDGET_EXHAUSTED" in run.final_judgment.reason_codes
