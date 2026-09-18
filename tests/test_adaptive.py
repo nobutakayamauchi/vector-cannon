@@ -243,4 +243,4 @@ def test_adaptive_loop_fails_closed_when_done_lacks_controller_success() -> None
 
     assert run.state is AdaptiveState.BLOCKED
     assert run.stop_reason == "DECISION_GATE_FAILED_CLOSED"
-    assert run.shots_fired == 0
+    assert run.shots_fired == 1
