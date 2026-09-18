@@ -128,6 +128,12 @@ class DecisionGate:
             raise JudgeError(f"{judge.name} judge failed") from exc
         if not isinstance(result, Judgment):
             raise JudgeError(f"{judge.name} returned a non-Judgment result")
+        if result.verdict is Verdict.DONE:
+            if evidence.controller_state != "SUCCEEDED":
+                raise JudgeError(f"{judge.name} attempted DONE without controller success")
+            for record in evidence.verification:
+                if record.get("timed_out") is True or record.get("exit_code") != 0:
+                    raise JudgeError(f"{judge.name} attempted DONE without passing verification")
         return result
 
 
