@@ -31,6 +31,9 @@ class JobSpec:
             raise ValueError("job_id and mission must not be empty")
         if not self.acceptance_criteria:
             raise ValueError("job requires acceptance criteria")
+        criterion_ids = [item.criterion_id for item in self.acceptance_criteria]
+        if len(criterion_ids) != len(set(criterion_ids)):
+            raise ValueError("acceptance criterion ids must be unique")
         if not self.allowed_files or any(not item.strip() for item in self.allowed_files):
             raise ValueError("job requires non-empty allowed_files")
         if len(self.allowed_files) != len(set(self.allowed_files)):
@@ -128,10 +131,11 @@ class AdaptiveRun:
     steps: tuple[AdaptiveStep, ...]
     final_judgment: Judgment | None
     stop_reason: str
+    attempted_shots: int
 
     @property
     def shots_fired(self) -> int:
-        return len(self.steps)
+        return self.attempted_shots
 
     @property
     def judge_calls(self) -> int:
@@ -185,6 +189,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     steps[-1].decision.final if steps else None,
                     "EXECUTOR_RETURNED_INVALID_RESULT",
+                    shot_number,
                 )
             evidence = EvidencePack.from_launcher_result(
                 job_id=job.job_id,
@@ -201,6 +206,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     steps[-1].decision.final if steps else None,
                     "DECISION_GATE_FAILED_CLOSED",
+                    shot_number,
                 )
 
             step = AdaptiveStep(
@@ -220,6 +226,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     final,
                     "ACCEPTANCE_CRITERIA_SATISFIED",
+                    shot_number,
                 )
             if final.verdict is Verdict.HUMAN_REQUIRED or (
                 final.verdict is Verdict.ESCALATE and final.escalate_to == "human"
@@ -229,6 +236,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     final,
                     "HUMAN_DECISION_REQUIRED",
+                    shot_number,
                 )
             if final.verdict is Verdict.BLOCKED:
                 return AdaptiveRun(
@@ -236,6 +244,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     final,
                     "JUDGE_REPORTED_BLOCKED",
+                    shot_number,
                 )
             if final.verdict is Verdict.ESCALATE:
                 return AdaptiveRun(
@@ -243,6 +252,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     final,
                     "AI_ESCALATION_EXHAUSTED",
+                    shot_number,
                 )
 
             if shot_number >= job.max_shots:
@@ -251,6 +261,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     final,
                     "MAX_SHOTS_REACHED",
+                    shot_number,
                 )
             try:
                 directive = self.planner.next(job, final, shot_number=shot_number + 1)
@@ -260,6 +271,7 @@ class AdaptiveOrchestrator:
                     tuple(steps),
                     final,
                     "NEXT_SHOT_PLAN_REJECTED",
+                    shot_number,
                 )
 
         raise AssertionError("adaptive loop exhausted unexpectedly")
