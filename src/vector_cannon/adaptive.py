@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Protocol
 
 from .decision_gate import DecisionGate, DecisionTrace, JudgeError
 from .evidence import AcceptanceCriterion, EvidencePack
 from .judgment import Judgment, Verdict
+from .repo_launcher import RepositorySession
 
 
 class AdaptiveState(str, Enum):
@@ -73,6 +75,45 @@ class ShotDirective:
 class ShotExecutor(Protocol):
     def execute(self, directive: ShotDirective) -> dict[str, Any]:
         ...
+
+
+class RepositoryShotExecutor:
+    """Adaptive ShotExecutor backed by an isolated RepositorySession."""
+
+    def __init__(self, session: RepositorySession, *, execute: bool = True) -> None:
+        self.session = session
+        self.execute_live = execute
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        source_repo: Path,
+        session_dir: Path,
+        codex_path: str = "codex",
+        execute: bool = True,
+    ) -> "RepositoryShotExecutor":
+        return cls(
+            RepositorySession(
+                source_repo=source_repo,
+                session_dir=session_dir,
+                codex_path=codex_path,
+            ),
+            execute=execute,
+        )
+
+    def execute(self, directive: ShotDirective) -> dict[str, Any]:
+        return self.session.execute(
+            task_id=directive.task_id,
+            instructions=directive.instructions,
+            allowed_files=directive.allowed_files,
+            verification_commands=directive.verification_commands,
+            timeout_seconds=directive.timeout_seconds,
+            execute=self.execute_live,
+        )
+
+    def write_cumulative_patch(self, path: Path) -> Path:
+        return self.session.write_cumulative_patch(path)
 
 
 class ShotPlanner(Protocol):
