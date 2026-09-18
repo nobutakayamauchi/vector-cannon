@@ -172,7 +172,7 @@ def test_sol_escalation_calls_astra_only_at_last_resort() -> None:
     )
     sol = FakeJudge(
         "sol",
-        judgment("sol", payload("ESCALATE", unknown=["AC-002"], escalate_to="astra")),
+        judgment("sol", payload("ESCALATE", satisfied=["AC-001"], unknown=["AC-002"], escalate_to="astra")),
     )
     astra = FakeJudge(
         "astra",
@@ -202,6 +202,7 @@ def test_human_escalation_does_not_consume_sol_or_astra() -> None:
             payload(
                 "ESCALATE",
                 confidence="medium",
+                satisfied=["AC-001"],
                 unknown=["AC-002"],
                 escalate_to="human",
                 reason_codes=["OPERATOR_DECISION_REQUIRED"],
@@ -266,3 +267,55 @@ def test_direct_shot_judge_rejects_prose_wrapped_json() -> None:
 
     with pytest.raises(JudgeError):
         judge.judge(evidence())
+
+
+
+def test_missing_acceptance_criterion_fails_closed() -> None:
+    jev = FakeJudge(
+        "jev",
+        judgment("jev", payload("DONE", satisfied=["AC-001"])),
+    )
+
+    trace = DecisionGate(jev).decide(evidence())
+
+    assert trace.final.verdict is Verdict.HUMAN_REQUIRED
+    assert "JUDGE_OUTPUT_INVALID" in trace.final.reason_codes
+
+
+def test_astra_can_be_disabled_by_mission_budget() -> None:
+    jev = FakeJudge(
+        "jev",
+        judgment(
+            "jev",
+            payload(
+                "ESCALATE",
+                unknown=["AC-001", "AC-002"],
+                escalate_to="sol",
+            ),
+        ),
+    )
+    sol = FakeJudge(
+        "sol",
+        judgment(
+            "sol",
+            payload(
+                "ESCALATE",
+                satisfied=["AC-001"],
+                unknown=["AC-002"],
+                escalate_to="astra",
+            ),
+        ),
+    )
+    astra = FakeJudge(
+        "astra",
+        judgment("astra", payload("DONE", satisfied=["AC-001", "AC-002"])),
+    )
+
+    trace = DecisionGate(jev, sol=sol, astra=astra).decide(
+        evidence(),
+        allow_astra=False,
+    )
+
+    assert trace.final.verdict is Verdict.HUMAN_REQUIRED
+    assert "DECISION_BUDGET_EXHAUSTED" in trace.final.reason_codes
+    assert astra.calls == 0

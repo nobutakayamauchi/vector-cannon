@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Protocol
 
 from .decision_gate import DecisionGate, DecisionTrace, JudgeError
 from .evidence import AcceptanceCriterion, EvidencePack
 from .judgment import Judgment, Verdict
+from .repo_launcher import RepositorySession
 
 
 class AdaptiveState(str, Enum):
@@ -25,6 +27,8 @@ class JobSpec:
     verification_commands: tuple[tuple[str, ...], ...]
     max_shots: int = 6
     timeout_seconds: float = 120.0
+    max_sol_judgments: int = 2
+    max_astra_judgments: int = 1
 
     def __post_init__(self) -> None:
         if not self.job_id.strip() or not self.mission.strip():
@@ -46,6 +50,56 @@ class JobSpec:
             raise ValueError("max_shots must be between 1 and 100")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if not 0 <= self.max_sol_judgments <= 100:
+            raise ValueError("max_sol_judgments must be between 0 and 100")
+        if not 0 <= self.max_astra_judgments <= 100:
+            raise ValueError("max_astra_judgments must be between 0 and 100")
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "JobSpec":
+        if not isinstance(data, dict):
+            raise ValueError("job spec must be an object")
+        criteria_raw = data.get("acceptance_criteria")
+        if not isinstance(criteria_raw, list) or not criteria_raw:
+            raise ValueError("acceptance_criteria must be a non-empty array")
+        criteria: list[AcceptanceCriterion] = []
+        for item in criteria_raw:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or not isinstance(item.get("description"), str)
+            ):
+                raise ValueError("acceptance criteria require id and description strings")
+            criteria.append(AcceptanceCriterion(item["id"], item["description"]))
+
+        allowed = data.get("allowed_files")
+        if not isinstance(allowed, list) or any(not isinstance(item, str) for item in allowed):
+            raise ValueError("allowed_files must be an array of strings")
+
+        commands_raw = data.get("verification_commands")
+        if not isinstance(commands_raw, list) or not commands_raw:
+            raise ValueError("verification_commands must be a non-empty argv array list")
+        commands: list[tuple[str, ...]] = []
+        for argv in commands_raw:
+            if (
+                not isinstance(argv, list)
+                or not argv
+                or any(not isinstance(item, str) or not item for item in argv)
+            ):
+                raise ValueError("verification commands must be non-empty string arrays")
+            commands.append(tuple(argv))
+
+        return cls(
+            job_id=str(data.get("job_id") or ""),
+            mission=str(data.get("mission") or ""),
+            acceptance_criteria=tuple(criteria),
+            allowed_files=tuple(allowed),
+            verification_commands=tuple(commands),
+            max_shots=int(data.get("max_shots", 6)),
+            timeout_seconds=float(data.get("timeout_seconds", 120.0)),
+            max_sol_judgments=int(data.get("max_sol_judgments", 2)),
+            max_astra_judgments=int(data.get("max_astra_judgments", 1)),
+        )
 
 
 @dataclass(frozen=True)
@@ -67,6 +121,45 @@ class ShotDirective:
 class ShotExecutor(Protocol):
     def execute(self, directive: ShotDirective) -> dict[str, Any]:
         ...
+
+
+class RepositoryShotExecutor:
+    """Adaptive ShotExecutor backed by an isolated RepositorySession."""
+
+    def __init__(self, session: RepositorySession, *, execute: bool = True) -> None:
+        self.session = session
+        self.execute_live = execute
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        source_repo: Path,
+        session_dir: Path,
+        codex_path: str = "codex",
+        execute: bool = True,
+    ) -> "RepositoryShotExecutor":
+        return cls(
+            RepositorySession(
+                source_repo=source_repo,
+                session_dir=session_dir,
+                codex_path=codex_path,
+            ),
+            execute=execute,
+        )
+
+    def execute(self, directive: ShotDirective) -> dict[str, Any]:
+        return self.session.execute(
+            task_id=directive.task_id,
+            instructions=directive.instructions,
+            allowed_files=directive.allowed_files,
+            verification_commands=directive.verification_commands,
+            timeout_seconds=directive.timeout_seconds,
+            execute=self.execute_live,
+        )
+
+    def write_cumulative_patch(self, path: Path) -> Path:
+        return self.session.write_cumulative_patch(path)
 
 
 class ShotPlanner(Protocol):
@@ -139,13 +232,35 @@ class AdaptiveRun:
 
     @property
     def judge_calls(self) -> int:
-        return sum(len(step.decision.judgments) for step in self.steps)
+        return sum(
+            1
+            for step in self.steps
+            for item in step.decision.judgments
+            if item.judge in {"jev", "sol", "astra"}
+        )
+
+    @property
+    def jev_judgments(self) -> int:
+        return sum(step.decision.count("jev") for step in self.steps)
+
+    @property
+    def sol_judgments(self) -> int:
+        return sum(step.decision.count("sol") for step in self.steps)
+
+    @property
+    def astra_judgments(self) -> int:
+        return sum(step.decision.count("astra") for step in self.steps)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "state": self.state.value,
             "shots_fired": self.shots_fired,
             "judge_calls": self.judge_calls,
+            "judge_counts": {
+                "jev": self.jev_judgments,
+                "sol": self.sol_judgments,
+                "astra": self.astra_judgments,
+            },
             "stop_reason": self.stop_reason,
             "final_judgment": (
                 self.steps[-1].decision.to_payload()["final"] if self.steps else None
@@ -180,6 +295,8 @@ class AdaptiveOrchestrator:
         steps: list[AdaptiveStep] = []
         prior: list[dict[str, Any]] = []
         directive = self.planner.initial(job)
+        sol_used = 0
+        astra_used = 0
 
         for shot_number in range(1, job.max_shots + 1):
             result = self.executor.execute(directive)
@@ -199,7 +316,11 @@ class AdaptiveOrchestrator:
                 prior_judgments=prior,
             )
             try:
-                decision = self.decision_gate.decide(evidence)
+                decision = self.decision_gate.decide(
+                    evidence,
+                    allow_sol=sol_used < job.max_sol_judgments,
+                    allow_astra=astra_used < job.max_astra_judgments,
+                )
             except JudgeError:
                 return AdaptiveRun(
                     AdaptiveState.BLOCKED,
@@ -208,6 +329,9 @@ class AdaptiveOrchestrator:
                     "DECISION_GATE_FAILED_CLOSED",
                     shot_number,
                 )
+
+            sol_used += decision.count("sol")
+            astra_used += decision.count("astra")
 
             step = AdaptiveStep(
                 shot_number=shot_number,
