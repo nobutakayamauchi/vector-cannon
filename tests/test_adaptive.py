@@ -101,7 +101,6 @@ def test_adaptive_loop_repair_then_done() -> None:
                 jp(
                     "REPAIR",
                     satisfied=("AC-001",),
-                    satisfied=("AC-001",),
                     unsatisfied=("AC-002",),
                     action={
                         "kind": "REPAIR",
