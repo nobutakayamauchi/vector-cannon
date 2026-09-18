@@ -450,6 +450,20 @@ def test_l1_cli_defaults_to_dry_run_json(setup, tmp_path, capsys):
     assert not run_dir(setup).exists()
 
 
+def test_l1_cli_legacy_landlock_is_opt_in_in_dry_run(setup, tmp_path, capsys):
+    ticket = tmp_path / "legacy-ticket.json"
+    ticket.write_text(json.dumps(setup["ticket"]))
+    code = main(["--ticket", str(ticket), "--repo", str(setup["repo"]),
+                 "--w02-patch", str(setup["w02_patch"]), "--codex-path",
+                 setup["adapter"].executable, "--legacy-landlock"])
+    result = json.loads(capsys.readouterr().out)
+    assert code == 0 and result["state"] == "NOT_STARTED"
+    assert result["dry_run"] is True and result["launch_count"] == 0
+    assert result["launch_target"]["linux_sandbox_backend"] == "LEGACY_LANDLOCK"
+    assert result["plan"]["argv"][1:4] == ["--enable", "use_legacy_landlock", "exec"]
+    assert not run_dir(setup).exists()
+
+
 def test_l2_logs_redact_recognized_credentials(setup):
     result = run(setup, instructions="secret-output")
     assert result["state"] == "SUCCEEDED"
