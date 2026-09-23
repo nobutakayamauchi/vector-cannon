@@ -1,0 +1,875 @@
+{
+  "audit_questions": [
+    {
+      "answer": "Yes for a present-day leaderboard subset (10 observed rows); full historical owner enumeration and owner/delegate mapping remain unverified. PROBE_4 / DOC_HISTORY.",
+      "number": 1,
+      "question": "Can identities be enumerated/discovered read-only?"
+    },
+    {
+      "answer": "UNVERIFIED. Trade and order history methods are documented, but lifecycle samples, complete pages and joins were not obtained. Exact BTC Upside recent-trades returned 403. DOC_INFO_API / PROBE_5.",
+      "number": 2,
+      "question": "Can historical position/trade lifecycle be reconstructed?"
+    },
+    {
+      "answer": "UNVERIFIED for this source history. Submitted/filled/canceled notifications are not sufficient to establish owner/product exposure transitions. DOC_ORDER_STREAM / DOC_HISTORY.",
+      "number": 3,
+      "question": "Can OPEN / INCREASE / REDUCE / CLOSE be distinguished?"
+    },
+    {
+      "answer": "Current product IDs and current-position schema are known; historical filled-event fields, units and timestamp semantics are UNKNOWN. DOC_POSITION_MODEL / PROBE_3.",
+      "number": 4,
+      "question": "Are side, exact product, filled amount and native timestamps available?"
+    },
+    {
+      "answer": "Current pairIndex/index/openedAt are documented, but historical transaction/log IDs and stable lifecycle lineage are UNKNOWN. DOC_POSITIONS / DOC_INFO_API.",
+      "number": 5,
+      "question": "Is there a stable event/transaction/order/position identifier?"
+    },
+    {
+      "answer": "DOCUMENTATION_ONLY. Full fee/PnL history is described, but per-event primitives and as-of completeness were not verified; no PnL was computed. DOC_HISTORY.",
+      "number": 6,
+      "question": "Are fees and realized PnL available without future leakage?"
+    },
+    {
+      "answer": "UNVERIFIED. The current positions GET lacks an as-of argument; complete exposure events, historic quotes and fee state were not obtained. DOC_ACCOUNT_API.",
+      "number": 7,
+      "question": "Can historical open-position/MTM be reconstructed?"
+    },
+    {
+      "answer": "UNKNOWN: no proven first/last event, retention horizon or gap rate. Current top-10 leaderboard is not coverage evidence. DOC_INFO_API / PROBE_4.",
+      "number": 8,
+      "question": "What is the historical coverage?"
+    },
+    {
+      "answer": "Documented page and limit path arguments, defaults 0 and 20. Maximum, ordering, completion and consistent-snapshot semantics UNKNOWN. DOC_INFO_API.",
+      "number": 9,
+      "question": "How does pagination work?"
+    },
+    {
+      "answer": "UNKNOWN numerical quotas. HTTP 429 handling is documented; round-trip time does not measure rate limits. DOC_ERRORS.",
+      "number": 10,
+      "question": "What rate limits apply?"
+    },
+    {
+      "answer": "UNKNOWN usable historical guarantees. Flashblock notifications are not assumed to be safe/final. Reviewed MAINNET Pusher key is unset; no key or stream was provisioned. DOC_ORDER_STREAM / DOC_CONFIG.",
+      "number": 11,
+      "question": "What finality/reorg/revision behavior exists?"
+    },
+    {
+      "answer": "Must be the native filled-event timestamp with explicit unit and clock. This history field was not established. Current position openedAt is insufficient and its missing zero default is not accepted. DOC_POSITION_MODEL.",
+      "number": 12,
+      "question": "What is event_time?"
+    },
+    {
+      "answer": "The local first successful receipt of a datum. These audit GETs retain actual receive-completion times. Old events fetched later must keep the later receipt, never the native event time.",
+      "number": 13,
+      "question": "What can honestly be called observed_at?"
+    },
+    {
+      "answer": "A known local receipt, locally observed acceptable finality, and all prerequisites; use their maximum only when complete and consistent. Otherwise UNKNOWN. No historical availability is filled by a current GET.",
+      "number": 14,
+      "question": "What determines available_at?"
+    },
+    {
+      "answer": "UNVERIFIED. This audit measured request durations only; no event-publication/indexing/finality delay or usable forward wallet event was captured. PROBE_2 through PROBE_5.",
+      "number": 15,
+      "question": "Could a forward observer receive events in time to follow?"
+    },
+    {
+      "answer": "Info history is documented without a signer and several public GETs worked. A 403 leaves read-access requirements unresolved. A delegate API key grants trading authority and was neither created nor used. DOC_SECURITY / PROBE_5.",
+      "number": 16,
+      "question": "Does a required capability need authentication/signing?"
+    },
+    {
+      "answer": "Yes for S01: standard-library offline processing and fixed public GET probes; execution SDK namespaces are never imported. No wallet, signing, deposit, withdrawal or order capability exists in this package. S01_BOUNDARY.",
+      "number": 17,
+      "question": "Can the source be audited without an order path?"
+    }
+  ],
+  "blockers": [
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Current leaderboard trader fields are observed, but historical owner/delegate attribution and continuity across position lifecycles are unverified.",
+      "field": "wallet_identity"
+    },
+    {
+      "code": "CAUSALITY_UNPROVEN",
+      "detail": "Current top-10 leaderboard is a biased present-day subset; no complete train-cutoff owner universe, including inactive/losing accounts, was established. Recent BTC Upside trades returned 403.",
+      "field": "wallet_discovery"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Current and W11 catalogs identify ETH=115, BTC=116, SOL=117 as Upside, but historical fill rows and their versioned product joins were not obtained.",
+      "field": "exact_product"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Current Position.buy/side is documented; no Upside historical filled-event side was verified.",
+      "field": "side"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Current collateral/leverage and fill history are described; exact partial-fill quantities/units and before/after exposure history were not verified.",
+      "field": "filled_amount"
+    },
+    {
+      "code": "UNKNOWN",
+      "detail": "pairIndex/index identify current positions; a stable historical event/transaction/log identifier and index-reuse handling are not established.",
+      "field": "stable_event_id"
+    },
+    {
+      "code": "UNKNOWN",
+      "detail": "openedAt is described for current positions. Native historical fill timestamp field, unit, clock and revision semantics are unverified. Missing values remain null; SDK zero defaults are not observations.",
+      "field": "event_time"
+    },
+    {
+      "code": "CAUSALITY_UNPROVEN",
+      "detail": "Only actual GET receipt timestamps in this audit are known. No first-receipt archive of historical wallet events exists in the reviewed inputs. A fetched old event would be observed now.",
+      "field": "observed_at"
+    },
+    {
+      "code": "CAUSALITY_UNPROVEN",
+      "detail": "Requires local receipt plus locally observed acceptable finality and all prerequisite availability. Historical delivery/finality receipts are absent; available_at stays null.",
+      "field": "available_at"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Filled flat-to-open must be separated from a submitted request and an addition under a new ID.",
+      "field": "open"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "An increase must link to existing owner/product exposure; no verified before/after lifecycle was retrieved.",
+      "field": "increase"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Partial closes require filled amount and remaining exposure; order lifecycle labels alone do not prove this.",
+      "field": "reduce"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Full close and liquidation must resolve the same episode with costs; no verified sequence was retrieved.",
+      "field": "close"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Official docs describe fees/funding and net/gross PnL, but actual Upside history field coverage and fee timing were not measured. Fees are not imputed as zero.",
+      "field": "fees"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "Documented fill-history accounting has no audited per-event raw samples here; aggregate leaderboard profit is not a reconstructable episode NET PnL.",
+      "field": "realized_pnl"
+    },
+    {
+      "code": "UNKNOWN",
+      "detail": "Current account positions are documented, but reviewed positions() has no historical-boundary parameter. Historical collateral/exposure, quote and cost primitives were not established.",
+      "field": "historical_mtm"
+    },
+    {
+      "code": "UNKNOWN",
+      "detail": "No earliest/latest native event, retention, gap rate, deployment cutover or train-window completeness was established.",
+      "field": "historical_coverage"
+    },
+    {
+      "code": "DOCUMENTATION_ONLY",
+      "detail": "History uses page/limit with defaults 0/20. Maximum page size, terminal rule, ordering and snapshot consistency during inserts/revisions remain unknown.",
+      "field": "pagination"
+    },
+    {
+      "code": "UNKNOWN",
+      "detail": "429 handling is documented; numeric request quotas for history/catalog and rate-limit headers were not established. No load test was performed.",
+      "field": "rate_limits"
+    },
+    {
+      "code": "UNKNOWN",
+      "detail": "Public Pusher notification types exist, but safe-block receipt, canonical reorg/revision treatment and historical replay guarantees are unproven. MAINNET Pusher key is not set in the reviewed profile.",
+      "field": "finality_revisions"
+    },
+    {
+      "code": "CAUSALITY_UNPROVEN",
+      "detail": "Measured HTTP round trips are about 4.6–7.2 seconds for these calls; they are not event-publication, indexing or safe-finality delays. No followed wallet event was observed.",
+      "field": "forward_timeliness"
+    },
+    {
+      "code": "CAUSALITY_UNPROVEN",
+      "detail": "No audited wallet-event history with original local receipt/finality timestamps, stable lifecycle identity and as-of exposure exists in this evidence. Historical GET availability today does not supply that proof.",
+      "field": "causal_history"
+    },
+    {
+      "code": "CAUSALITY_UNPROVEN",
+      "detail": "No provenance-backed receipt/finality witness usable at the decision boundary",
+      "field": "causal_witness"
+    }
+  ],
+  "capabilities": [
+    {
+      "detail": "Requires local receipt plus locally observed acceptable finality and all prerequisite availability. Historical delivery/finality receipts are absent; available_at stays null.",
+      "evidence_ids": [
+        "DOC_ORDER_STREAM",
+        "W12_SPEC"
+      ],
+      "name": "available_at",
+      "state": "CAUSALITY_UNPROVEN"
+    },
+    {
+      "detail": "No audited wallet-event history with original local receipt/finality timestamps, stable lifecycle identity and as-of exposure exists in this evidence. Historical GET availability today does not supply that proof.",
+      "evidence_ids": [
+        "W12_LOCK",
+        "DOC_INFO_API",
+        "DOC_ORDER_STREAM",
+        "PROBE_5"
+      ],
+      "name": "causal_history",
+      "state": "CAUSALITY_UNPROVEN"
+    },
+    {
+      "detail": "Full close and liquidation must resolve the same episode with costs; no verified sequence was retrieved.",
+      "evidence_ids": [
+        "DOC_HISTORY",
+        "DOC_INFO_API",
+        "DOC_ORDER_STREAM"
+      ],
+      "name": "close",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "openedAt is described for current positions. Native historical fill timestamp field, unit, clock and revision semantics are unverified. Missing values remain null; SDK zero defaults are not observations.",
+      "evidence_ids": [
+        "DOC_POSITION_MODEL",
+        "DOC_INFO_API"
+      ],
+      "name": "event_time",
+      "state": "UNKNOWN"
+    },
+    {
+      "detail": "Current and W11 catalogs identify ETH=115, BTC=116, SOL=117 as Upside, but historical fill rows and their versioned product joins were not obtained.",
+      "evidence_ids": [
+        "PROBE_3",
+        "DOC_MARKETS",
+        "W11_CONFIG"
+      ],
+      "name": "exact_product",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Official docs describe fees/funding and net/gross PnL, but actual Upside history field coverage and fee timing were not measured. Fees are not imputed as zero.",
+      "evidence_ids": [
+        "DOC_HISTORY",
+        "DOC_INFO_API"
+      ],
+      "name": "fees",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Current collateral/leverage and fill history are described; exact partial-fill quantities/units and before/after exposure history were not verified.",
+      "evidence_ids": [
+        "DOC_POSITION_MODEL",
+        "DOC_HISTORY"
+      ],
+      "name": "filled_amount",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Public Pusher notification types exist, but safe-block receipt, canonical reorg/revision treatment and historical replay guarantees are unproven. MAINNET Pusher key is not set in the reviewed profile.",
+      "evidence_ids": [
+        "DOC_ORDER_STREAM",
+        "DOC_CONFIG"
+      ],
+      "name": "finality_revisions",
+      "state": "UNKNOWN"
+    },
+    {
+      "detail": "Measured HTTP round trips are about 4.6–7.2 seconds for these calls; they are not event-publication, indexing or safe-finality delays. No followed wallet event was observed.",
+      "evidence_ids": [
+        "PROBE_2",
+        "PROBE_3",
+        "PROBE_4",
+        "PROBE_5"
+      ],
+      "name": "forward_timeliness",
+      "state": "CAUSALITY_UNPROVEN"
+    },
+    {
+      "detail": "No earliest/latest native event, retention, gap rate, deployment cutover or train-window completeness was established.",
+      "evidence_ids": [
+        "DOC_INFO_API",
+        "PROBE_5"
+      ],
+      "name": "historical_coverage",
+      "state": "UNKNOWN"
+    },
+    {
+      "detail": "Current account positions are documented, but reviewed positions() has no historical-boundary parameter. Historical collateral/exposure, quote and cost primitives were not established.",
+      "evidence_ids": [
+        "DOC_ACCOUNT_API",
+        "DOC_POSITIONS"
+      ],
+      "name": "historical_mtm",
+      "state": "UNKNOWN"
+    },
+    {
+      "detail": "An increase must link to existing owner/product exposure; no verified before/after lifecycle was retrieved.",
+      "evidence_ids": [
+        "DOC_HISTORY",
+        "DOC_INFO_API",
+        "DOC_ORDER_STREAM"
+      ],
+      "name": "increase",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Only actual GET receipt timestamps in this audit are known. No first-receipt archive of historical wallet events exists in the reviewed inputs. A fetched old event would be observed now.",
+      "evidence_ids": [
+        "PROBE_3",
+        "PROBE_4",
+        "PROBE_5"
+      ],
+      "name": "observed_at",
+      "state": "CAUSALITY_UNPROVEN"
+    },
+    {
+      "detail": "Filled flat-to-open must be separated from a submitted request and an addition under a new ID.",
+      "evidence_ids": [
+        "DOC_HISTORY",
+        "DOC_INFO_API",
+        "DOC_ORDER_STREAM"
+      ],
+      "name": "open",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "History uses page/limit with defaults 0/20. Maximum page size, terminal rule, ordering and snapshot consistency during inserts/revisions remain unknown.",
+      "evidence_ids": [
+        "DOC_INFO_API"
+      ],
+      "name": "pagination",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "429 handling is documented; numeric request quotas for history/catalog and rate-limit headers were not established. No load test was performed.",
+      "evidence_ids": [
+        "DOC_ERRORS"
+      ],
+      "name": "rate_limits",
+      "state": "UNKNOWN"
+    },
+    {
+      "detail": "Three public API GETs succeeded with no credentials. Official info docs require no signer. BTC recent-trades 403 does not establish that signing or a trading delegate is required.",
+      "evidence_ids": [
+        "PROBE_2",
+        "PROBE_3",
+        "PROBE_4",
+        "PROBE_5",
+        "DOC_HISTORY",
+        "DOC_SECURITY"
+      ],
+      "name": "read_auth",
+      "state": "VERIFIED"
+    },
+    {
+      "detail": "Offline audit has no network/client imports; optional probe has fixed GET URLs only. No root SDK client, AccountApi, signer, order client, inference client or trading env configuration is imported.",
+      "evidence_ids": [
+        "S01_BOUNDARY",
+        "DOC_ACCOUNT_API",
+        "DOC_SECURITY"
+      ],
+      "name": "read_only_boundary",
+      "state": "VERIFIED"
+    },
+    {
+      "detail": "Documented fill-history accounting has no audited per-event raw samples here; aggregate leaderboard profit is not a reconstructable episode NET PnL.",
+      "evidence_ids": [
+        "DOC_HISTORY",
+        "PROBE_4"
+      ],
+      "name": "realized_pnl",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Partial closes require filled amount and remaining exposure; order lifecycle labels alone do not prove this.",
+      "evidence_ids": [
+        "DOC_HISTORY",
+        "DOC_INFO_API",
+        "DOC_ORDER_STREAM"
+      ],
+      "name": "reduce",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Current Position.buy/side is documented; no Upside historical filled-event side was verified.",
+      "evidence_ids": [
+        "DOC_POSITION_MODEL"
+      ],
+      "name": "side",
+      "state": "DOCUMENTATION_ONLY"
+    },
+    {
+      "detail": "Veranta v2 mainnet Upside / Base chain 8453 / USDC. Source family: public history API; exact historical wallet feed not established.",
+      "evidence_ids": [
+        "W11_RUNTIME",
+        "W11_CONFIG",
+        "W12_SPEC",
+        "DOC_CONFIG",
+        "PROBE_3"
+      ],
+      "name": "source_identity",
+      "state": "VERIFIED"
+    },
+    {
+      "detail": "pairIndex/index identify current positions; a stable historical event/transaction/log identifier and index-reuse handling are not established.",
+      "evidence_ids": [
+        "DOC_POSITIONS",
+        "DOC_INFO_API"
+      ],
+      "name": "stable_event_id",
+      "state": "UNKNOWN"
+    },
+    {
+      "detail": "Current top-10 leaderboard is a biased present-day subset; no complete train-cutoff owner universe, including inactive/losing accounts, was established. Recent BTC Upside trades returned 403.",
+      "evidence_ids": [
+        "PROBE_4",
+        "PROBE_5",
+        "W12_SPEC"
+      ],
+      "name": "wallet_discovery",
+      "state": "CAUSALITY_UNPROVEN"
+    },
+    {
+      "detail": "Current leaderboard trader fields are observed, but historical owner/delegate attribution and continuity across position lifecycles are unverified.",
+      "evidence_ids": [
+        "PROBE_4",
+        "DOC_POSITION_MODEL"
+      ],
+      "name": "wallet_identity",
+      "state": "DOCUMENTATION_ONLY"
+    }
+  ],
+  "causal_witnesses": [],
+  "evidence_input_sha256": "4c0e0ff87413f4a41773deead0a5d9d90e29481dbcb4c99b3c1f6a34a4399d23",
+  "final_status": "BLOCKED_WALLET_DATA_SOURCE",
+  "frozen_inputs": {
+    "changed_or_missing": [],
+    "checked_files": 5707,
+    "scope": "Pinned files and original lock inventory only",
+    "status": "PASS",
+    "unavailable": []
+  },
+  "live_order_path": "UNREACHABLE",
+  "live_orders_sent": 0,
+  "mandatory_capabilities": [
+    "source_identity",
+    "wallet_identity",
+    "wallet_discovery",
+    "exact_product",
+    "side",
+    "filled_amount",
+    "stable_event_id",
+    "event_time",
+    "observed_at",
+    "available_at",
+    "open",
+    "increase",
+    "reduce",
+    "close",
+    "fees",
+    "realized_pnl",
+    "historical_mtm",
+    "historical_coverage",
+    "pagination",
+    "rate_limits",
+    "finality_revisions",
+    "forward_timeliness",
+    "read_auth",
+    "read_only_boundary",
+    "causal_history"
+  ],
+  "next_action": "STOP_BLOCKED",
+  "probes": [
+    {
+      "body_kind": "non_json",
+      "body_sha256": "cc369edff9fd04f01563693ffd7a6e8b7e776f0ae38f6b3a1ae214d92cb27987",
+      "credentials_sent": false,
+      "http_status": 200,
+      "method": "GET",
+      "observed_at": "2026-09-23T12:13:16.742390+00:00",
+      "outcome": "READ_ONLY_RESPONSE",
+      "request_latency_ms": 6479.629,
+      "requested_at": "2026-09-23T12:13:10.262798+00:00",
+      "size_bytes": 295231,
+      "url": "https://sdk.veranta.xyz/"
+    },
+    {
+      "body_sha256": "ffe4e62889c225f473d41722c34b06582f6d90ec5c54caddbafdeeb59ee439af",
+      "credentials_sent": false,
+      "http_status": 200,
+      "method": "GET",
+      "observed_at": "2026-09-23T12:13:22.531444+00:00",
+      "outcome": "READ_ONLY_RESPONSE",
+      "request_latency_ms": 5788.935,
+      "requested_at": "2026-09-23T12:13:16.742524+00:00",
+      "response_keys": [
+        "success",
+        "message"
+      ],
+      "response_projection": {
+        "message": "No active status found",
+        "success": true
+      },
+      "size_bytes": 51,
+      "url": "https://api.veranta.xyz/v1/app/status"
+    },
+    {
+      "body_sha256": "e0244aaa1c6b769887239d9bab0f216b8a8b576bb245d3bc0bafac5f85da56c1",
+      "credentials_sent": false,
+      "http_status": 200,
+      "method": "GET",
+      "observed_at": "2026-09-23T12:13:27.147602+00:00",
+      "outcome": "READ_ONLY_RESPONSE",
+      "request_latency_ms": 4615.962,
+      "requested_at": "2026-09-23T12:13:22.531658+00:00",
+      "response_keys": [
+        "dataVersion",
+        "pairInfos",
+        "groupInfo",
+        "pairCount",
+        "maxTradesPerPair",
+        "totalOi",
+        "maxOpenInterest"
+      ],
+      "response_projection": {
+        "115": {
+          "from": "ETH_UPSIDE",
+          "index": 115,
+          "to": "USD"
+        },
+        "116": {
+          "from": "BTC_UPSIDE",
+          "index": 116,
+          "to": "USD"
+        },
+        "117": {
+          "from": "SOL_UPSIDE",
+          "index": 117,
+          "to": "USD"
+        }
+      },
+      "size_bytes": 407112,
+      "url": "https://prod-api.veranta.xyz/data/v2/trading"
+    },
+    {
+      "body_sha256": "c7c3a73cdced4a2e597e413efd9ed6a9a30b005e68d941ab80c85e0966b4540b",
+      "credentials_sent": false,
+      "http_status": 200,
+      "method": "GET",
+      "observed_at": "2026-09-23T12:13:32.050582+00:00",
+      "outcome": "READ_ONLY_RESPONSE",
+      "request_latency_ms": 4902.896,
+      "requested_at": "2026-09-23T12:13:27.147700+00:00",
+      "response_keys": [
+        "leaderBoard",
+        "userData",
+        "success"
+      ],
+      "response_projection": {
+        "row_count": 10,
+        "row_field_names": [
+          "__v",
+          "_id",
+          "createdAt",
+          "grossWinRate",
+          "lastUpdated",
+          "rank",
+          "totalGrossPnl",
+          "totalGrossPnlWins",
+          "totalPositionSizes",
+          "totalProfits",
+          "totalTrades",
+          "totalWins",
+          "trader",
+          "updatedAt",
+          "winRate"
+        ],
+        "success": true,
+        "values_retained": false
+      },
+      "size_bytes": 4781,
+      "url": "https://api.veranta.xyz/v1/history/portfolio/leader-board"
+    },
+    {
+      "credentials_sent": false,
+      "error": "HTTP_ERROR",
+      "http_status": 403,
+      "method": "GET",
+      "observed_at": "2026-09-23T12:14:14.983873+00:00",
+      "outcome": "ACCESS_DENIED",
+      "request_latency_ms": 7239.852,
+      "requested_at": "2026-09-23T12:14:07.744045+00:00",
+      "url": "https://api.veranta.xyz/v1/history/recent-trades/116"
+    },
+    {
+      "credentials_sent": false,
+      "error_type": "URLError",
+      "http_status": null,
+      "method": "GET",
+      "observed_at": "2026-09-23T12:21:10.159681+00:00",
+      "outcome": "NETWORK_UNAVAILABLE",
+      "request_latency_ms": 12016.097,
+      "requested_at": "2026-09-23T12:20:58.143585+00:00",
+      "url": "https://api.veranta.xyz/v1/app/status"
+    }
+  ],
+  "provenance": [
+    {
+      "claim": "positions reads GET core/user-data with a trader parameter only. AccountApi also inherits execution functions, so S01 does not instantiate it or the root SDK client. No historical as-of parameter is exposed by this method.",
+      "evidence_id": "DOC_ACCOUNT_API",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "108176b959f0266695654e5bbdb567e297cba7356b895065c27cbaf17beaf859",
+      "title": "AccountApi source",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/veranta_sdk/account/api.py"
+    },
+    {
+      "claim": "The current mainnet profile binds the history service to api.veranta.xyz, core/data to prod-api.veranta.xyz, and deployment metadata to tx-builder.veranta.xyz. MAINNET has no explicit Pusher key; NetworkProfile defaults it to None. S01 does not read SDK environment overrides.",
+      "evidence_id": "DOC_CONFIG",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "26a7ead460ec6839e6ab4189381c371341d5db75adebb74a643559afca4dae76",
+      "title": "Mainnet SDK configuration",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/veranta_sdk/config.py"
+    },
+    {
+      "claim": "The error table recognizes HTTP 429 rate limiting. It does not provide numeric history endpoint request quotas; a request duration measured here is not a rate limit.",
+      "evidence_id": "DOC_ERRORS",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "30a362149568429199b7d3f74fef9ec80206142886e2126e7b5e51c83315d5f3",
+      "title": "Error handling",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/docs/mintlify/advanced/errors.mdx"
+    },
+    {
+      "claim": "The public info surface accepts account addresses without signing. It describes fill history with fees, order history, recent pair trades and a leaderboard. These descriptions do not establish historical completeness, original delivery times or an as-of position snapshot.",
+      "evidence_id": "DOC_HISTORY",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "7a645aa4963c051f817b5934e089ae1ec90f970d8c56124a69828f16564ef8c0",
+      "title": "Portfolio and History",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/docs/mintlify/account/portfolio.mdx"
+    },
+    {
+      "claim": "trade_history and order_history use GET /v2/history/{trade-history,order-history}/{trader}/{page}/{limit}, default page=0 and limit=20. recent_trades uses GET /v1/history/recent-trades/{pair_index}. Responses are untyped Any; numeric quotas, retention, stable paging order and history watermark are not specified here. A missing deployment endpoint can return 404.",
+      "evidence_id": "DOC_INFO_API",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "b33598bda100de89baadb38bbd1153eb0bad12a1c8c5223d2f01cd550dbfd03e",
+      "title": "InfoApi source",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/veranta_sdk/info/api.py"
+    },
+    {
+      "claim": "Upside pairs have distinct suffixed identities, with profit-share economics. A normal BTC/USD, ETH/USD or SOL/USD history cannot be relabeled as Upside history.",
+      "evidence_id": "DOC_MARKETS",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "f7bc0a29bec96ef8a2094610497f3cb14e9656ef1ea5f03ddb1af280f02d89b0",
+      "title": "Markets / Upside",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/docs/mintlify/data/markets.mdx"
+    },
+    {
+      "claim": "The SDK describes unsigned public per-trader Pusher channels and pickup, flashblock confirmation, filled and canceled notifications. The stream requires a deployment Pusher key. The code does not prove historical replay, a received-at archive, canonical safe-block observation or a revision policy. Flashblock confirmation is not assumed to be finality.",
+      "evidence_id": "DOC_ORDER_STREAM",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "1f0f85e3a3d1e822cacc44fed03a872b1254d9b6bbc1ffa77188d0feb37f7444",
+      "title": "Public order event stream source",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/veranta_sdk/streams/orders.py"
+    },
+    {
+      "claim": "Current account state exposes pair/index, side, collateral, leverage, opened_at and is_upside with accrued fee fields. The documented read describes current positions; it does not document a historical-boundary parameter.",
+      "evidence_id": "DOC_POSITIONS",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "3587f03169ffe35f37ecbbfe0fb2e7906f46609ba6c73365b57cec9342cda8d6",
+      "title": "Positions",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/docs/mintlify/account/positions.mdx"
+    },
+    {
+      "claim": "Current positions expose trader, pairIndex, index, buy, isPnl, collateral, leverage and openedAt. Several missing values default to zero or false in the SDK, so they cannot be treated as evidence of observed zero fees or known native timestamps. The S01 timing interface preserves None.",
+      "evidence_id": "DOC_POSITION_MODEL",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "31e8520b048ee6d99f747bc567faed3cf366702f5a23de5bc320ae2edc50305c",
+      "title": "Position model",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/veranta_sdk/account/models.py"
+    },
+    {
+      "claim": "A delegate API key is trading authority, not merely read authentication. Public info reads do not justify creating or configuring a delegate or signing client. No such client or credential was added.",
+      "evidence_id": "DOC_SECURITY",
+      "fixture": false,
+      "kind": "DOCUMENTATION",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "443e0881baab9c7571c119299e1681969aafdceafc022cc0d95a9b0e781388b3",
+      "title": "Security Model",
+      "uri": "https://github.com/Avantis-Labs/avantis_trader_sdk/blob/776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4/docs/mintlify/advanced/security.mdx"
+    },
+    {
+      "claim": "The SDK documentation homepage was reachable by direct public GET. A separate web-reader attempt could not access it; that tool failure is not evidence of source unavailability.",
+      "evidence_id": "PROBE_1",
+      "fixture": false,
+      "kind": "READ_ONLY_PROBE",
+      "retrieved_at": "2026-09-23T12:13:16.742390+00:00",
+      "sha256": "cc369edff9fd04f01563693ffd7a6e8b7e776f0ae38f6b3a1ae214d92cb27987",
+      "title": "https://sdk.veranta.xyz/",
+      "uri": "https://sdk.veranta.xyz/"
+    },
+    {
+      "claim": "Public status GET returned HTTP 200 and success=true without credentials. This does not establish wallet history availability.",
+      "evidence_id": "PROBE_2",
+      "fixture": false,
+      "kind": "READ_ONLY_PROBE",
+      "retrieved_at": "2026-09-23T12:13:22.531444+00:00",
+      "sha256": "ffe4e62889c225f473d41722c34b06582f6d90ec5c54caddbafdeeb59ee439af",
+      "title": "https://api.veranta.xyz/v1/app/status",
+      "uri": "https://api.veranta.xyz/v1/app/status"
+    },
+    {
+      "claim": "Current unauthenticated catalog GET confirms ETH_UPSIDE/USD index 115, BTC_UPSIDE/USD 116 and SOL_UPSIDE/USD 117, matching W11 catalog identities. Catalog retrieval does not demonstrate wallet fill history.",
+      "evidence_id": "PROBE_3",
+      "fixture": false,
+      "kind": "READ_ONLY_PROBE",
+      "retrieved_at": "2026-09-23T12:13:27.147602+00:00",
+      "sha256": "e0244aaa1c6b769887239d9bab0f216b8a8b576bb245d3bc0bafac5f85da56c1",
+      "title": "https://prod-api.veranta.xyz/data/v2/trading",
+      "uri": "https://prod-api.veranta.xyz/data/v2/trading"
+    },
+    {
+      "claim": "Public GET returned 10 leaderboard rows with trader, rank and aggregate fields. No wallet was ranked or selected by this audit. Current top-account discovery is not a complete historical all-owner universe.",
+      "evidence_id": "PROBE_4",
+      "fixture": false,
+      "kind": "READ_ONLY_PROBE",
+      "retrieved_at": "2026-09-23T12:13:32.050582+00:00",
+      "sha256": "c7c3a73cdced4a2e597e413efd9ed6a9a30b005e68d941ab80c85e0966b4540b",
+      "title": "https://api.veranta.xyz/v1/history/portfolio/leader-board",
+      "uri": "https://api.veranta.xyz/v1/history/portfolio/leader-board"
+    },
+    {
+      "claim": "Public GET for the exact BTC Upside pair returned HTTP 403. No fill rows were received. Authentication requirement versus endpoint/gateway restriction is unresolved; this is not proof that the source lacks history. No bypass or retry was attempted.",
+      "evidence_id": "PROBE_5",
+      "fixture": false,
+      "kind": "READ_ONLY_PROBE",
+      "retrieved_at": "2026-09-23T12:14:14.983873+00:00",
+      "sha256": null,
+      "title": "https://api.veranta.xyz/v1/history/recent-trades/116",
+      "uri": "https://api.veranta.xyz/v1/history/recent-trades/116"
+    },
+    {
+      "claim": "The implemented S01 probe command executed one fixed public GET without source credentials. It returned the recorded transport result; this is a runner smoke test, not wallet history evidence.",
+      "evidence_id": "PROBE_6",
+      "fixture": false,
+      "kind": "READ_ONLY_PROBE",
+      "retrieved_at": "2026-09-23T12:21:10.159681+00:00",
+      "sha256": null,
+      "title": "Implemented runner: app status GET",
+      "uri": "https://api.veranta.xyz/v1/app/status"
+    },
+    {
+      "claim": "S01 uses standalone standard-library code. The offline audit imports no SDK or inference client. Optional probes allow five fixed public GET URLs, no caller URL/method/body/credentials, redirects or retries. SHA is the compact sorted path-to-file-SHA256 map of the implementation.",
+      "evidence_id": "S01_BOUNDARY",
+      "fixture": false,
+      "kind": "REPOSITORY",
+      "retrieved_at": "2026-09-23T12:21:23.452894+00:00",
+      "sha256": "f8c7f2d00e351021af7482d966639ad48b515b58f209dc066dd2b90bb31a90aa",
+      "title": "Isolated S01 import and request boundary",
+      "uri": "../../../../src/w12_edge_miner/s01/"
+    },
+    {
+      "claim": "The actual runtime fixes BTC_UPSIDE/USD, ETH_UPSIDE/USD and SOL_UPSIDE/USD; Paper only, 100 JPY modeled total-loss cap, 250 ms execution latency, 180 s hold. This audit does not run or alter that policy.",
+      "evidence_id": "W11_CONFIG",
+      "fixture": false,
+      "kind": "REPOSITORY",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "944e0c2b9302678774e5ebc98273d5f9ace51a3079a02e50cecd42a2b15d8381",
+      "title": "Actual W11 runtime config",
+      "uri": "external-w11:reports/w11/W11B_PRIVATE_CAPTURE_30_CONTINUED/runtime_source/config.py"
+    },
+    {
+      "claim": "The stored runtime identity pins policy_w11_frozen.py to 57af28d21b955fcd1c4c231c41bf3e33e84c6d1a41275a059741968524d18ba8 and engine.py to 0692c0fe8636a1cc1dc37d3167ca3a0598bda91add49a6cc76a8a63c01c32867. Both archived files were read and hash-checked; current workspace copies match them.",
+      "evidence_id": "W11_RUNTIME",
+      "fixture": false,
+      "kind": "REPOSITORY",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "57064a6edec71040f55d2c000fffdb2e01611267f0b323ab6511063cc89b6ce7",
+      "title": "W11 continued runtime identity",
+      "uri": "external-w11:reports/w11/W11B_PRIVATE_CAPTURE_30_CONTINUED/DECISION_RUNTIME_IDENTITY.json"
+    },
+    {
+      "claim": "Frozen W12 names Veranta Upside on Base as the only source scope and pins the original 5,633 W11 run files plus source/tests. This is prior experiment provenance, not proof of current external API capability.",
+      "evidence_id": "W12_LOCK",
+      "fixture": false,
+      "kind": "REPOSITORY",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "bc16403d09dbf21bfed5bec8004b8dadda904710bfdf3634e8f1f87636171829",
+      "title": "W12_BASELINE_LOCK.json",
+      "uri": "external-w12:W12_BASELINE_LOCK.json"
+    },
+    {
+      "claim": "Frozen W12 names Veranta Upside on Base as the only source scope and pins the original 5,633 W11 run files plus source/tests. This is prior experiment provenance, not proof of current external API capability.",
+      "evidence_id": "W12_SPEC",
+      "fixture": false,
+      "kind": "REPOSITORY",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "67230ef5e32a99a12c4a2e06ee3b404b2aa9bdd3a34aaa69cb600bbc22a807f9",
+      "title": "W12_WINNER_WALLET_SPEC.md",
+      "uri": "external-w12:W12_WINNER_WALLET_SPEC.md"
+    },
+    {
+      "claim": "S01 requires a read-only capability audit and a blocked result when causal history cannot be established; it forbids S02+, signing, orders and changing frozen artifacts.",
+      "evidence_id": "WORK_ORDER",
+      "fixture": false,
+      "kind": "REPOSITORY",
+      "retrieved_at": "2026-09-23T12:20:33.246169+00:00",
+      "sha256": "1b0f11bd58bc39166487c9b7627b821bb6a0b283cdf95fb62ade9a02109cc767",
+      "title": "S01 authoritative work order",
+      "uri": "https://github.com/nobutakayamauchi/vector-cannon/blob/cbd6d34612bf995e698cd72a11535b03b8cac4f3/docs/CODEX_W12_EDGE_MINER_S01.md"
+    }
+  ],
+  "read_only_boundary": "PASS",
+  "repository": {
+    "base_commit": "70b99edbb226625cf18618b571b865444aea2008",
+    "initial_worktree": "CLEAN",
+    "inventory_note": "Target branch contains no W11 runtime or frozen Winner Wallet artifacts. External existing workspace originals were read and checked against the original W12 lock; no files were copied into or changed in that experiment.",
+    "official_sdk_commit": "776438c3e8ca065bbe9a618a7c5a6ceaf5c5e2d4",
+    "official_sdk_version": "2.2.0",
+    "start_commit": "cbd6d34612bf995e698cd72a11535b03b8cac4f3",
+    "target_branch": "feature/w12-edge-miner-v1"
+  },
+  "runner_mode": "OFFLINE_CAPTURED_EVIDENCE",
+  "schema": "W12_EDGE_MINER_S01_CAPABILITY_V1",
+  "scope": {
+    "auth_requirement": "Public info documented; no credentials used. Recent BTC trades HTTP 403 reason unresolved.",
+    "chain_id": 8453,
+    "event_latency_ms": null,
+    "historical_available_at": null,
+    "historical_coverage_end": null,
+    "historical_coverage_start": null,
+    "markets": {
+      "BTC_UPSIDE/USD": 116,
+      "ETH_UPSIDE/USD": 115,
+      "SOL_UPSIDE/USD": 117
+    },
+    "normal_perps_mapping": false,
+    "numeric_rate_limit": null,
+    "settlement_asset": "USDC"
+  },
+  "source_id": "veranta-v2-mainnet-history-api",
+  "venue_product": "Veranta v2 Upside / Base / USDC"
+}
