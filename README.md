@@ -290,3 +290,39 @@ The MVP is intentionally smaller than the vision.
 **First implementation:** make legitimate inference dramatically easier to fire, then turn every firing record into better future routing.
 
 See issue #1 for the roadmap.
+
+## W12 Edge Miner — S01 only
+
+The isolated `w12_edge_miner.s01` package audits read-only Wallet history capability.
+It implements no wallet selector, trading strategy, Paper execution or live client.
+The authoritative work order is `docs/CODEX_W12_EDGE_MINER_S01.md`.
+
+Reproduce the captured audit offline (no SDK or extra runtime dependency):
+
+```bash
+PYTHONPATH=src python -m w12_edge_miner.s01 audit \
+  --evidence reports/w12_edge_miner/s01/evidence.json \
+  --out /tmp/w12-s01-audit \
+  --w11-root /path/to/original/vector-cannon-microshot \
+  --w12-root /path/to/original/w12_design
+```
+
+The two original experiment roots are external to this repository. The runner
+verifies the pinned W12 lock, its W11 inventory and both frozen specifications.
+If roots are omitted, integrity is explicitly `UNVERIFIED` and the audit stays
+blocked. Fixtures never establish real source capability. `BLOCKED_WALLET_DATA_SOURCE`
+is a completed S01 finding (exit 0), not permission to proceed to S02.
+
+For a separately captured public endpoint receipt:
+
+```bash
+PYTHONPATH=src python -m w12_edge_miner.s01 probe app_status --out /tmp/s01-status.json
+```
+
+Probes permit fixed public GET URLs only, reject redirects and send no credentials.
+They do not accept arbitrary URLs or construct a trading SDK client. A new probe
+does not silently alter the reviewed evidence or promote the audit to PASS.
+Identical inputs and integrity results produce identical reports; rerunning an
+existing report is allowed only when its bytes are identical. Different evidence
+requires a new output directory. Probe receive times and request durations are
+new observations and are not backdated or treated as source-event latency.
