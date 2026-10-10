@@ -2,17 +2,21 @@
 
 **Give an agent a bounded job. Accept its output only when independent evidence meets the agreed contract.**
 
-Version `1.0.0a1` is an internal-use alpha, not a claim of production certification or live Jev acceptance.
+Version `1.1.0a1` is an internal-use alpha. The new default architecture treats ChatGPT dot as an external supervisor and Vector Cannon as the evidence/QA control plane.
 
 ```text
-Operator-owned Mission Contract
+dot / operator (outer supervisor)
+        ↑ hash-bound handoff
+        ↓ bounded supervisor decision
+Mission Contract → Vector Cannon Outcome Control
         ↓
-Isolated candidate (Codex or an imported agent export)
+Codex or imported agent artifact
         ↓
 Controller scope checks + independent verifiers
-        ├─ failed checks → bounded repair
-        ├─ unknown / unauthorized / no progress → human or blocked
-        ├─ all checks pass → optional Jev → Sol → Astra review
+        ├─ deterministic failure → bounded repair, no judge spend
+        ├─ all hard checks pass → optional Jev → optional Sol
+        ├─ unresolved semantic review → DOT_HANDOFF
+        └─ unknown / authorization / no progress → human or blocked
         ↓
 Hash-bound VERIFIED_DONE + delivery + cumulative patch + report
 ```
@@ -21,7 +25,7 @@ Hash-bound VERIFIED_DONE + delivery + cumulative patch + report
 
 Vector Cannon is no longer trying to compete with model gateways, catalogues, or coding agents. Existing provider/launcher functionality is retained for compatibility. The new product centre is the **mission contract, evidence, durable control state, and verified outcome**.
 
-The controller can decide simple cases without calling any model. Jev is a genuine typed-decision adapter using the documented Vercel `/v1/evaluate` endpoint, **not** a chat model asked to emit JSON. Sol and Astra are operator-configured review roles; no public model IDs or subscriptions are assumed.
+The controller can decide simple cases without calling any model. Jev is a typed-decision adapter using the documented Vercel `/v1/evaluate` endpoint, **not** a chat model asked to emit JSON. Sol remains an optional technical-review tier. For new missions, unresolved review can stop at `DOT_HANDOFF` instead of directly spending an Astra call. Direct Astra remains only as a compatibility path for older contracts.
 
 ## Install and inspect
 
@@ -55,6 +59,28 @@ Codex must already be installed and authenticated. The controller checks its loc
 
 `--step` checkpoints after one external operation. Resuming a completed operation never replays it. If execution was interrupted after reservation but before a recorded return, the session stops as `HUMAN_REQUIRED`; it does **not** guess that nothing happened and fire again. A disconnected CLI does not prove that remote work or billing stopped.
 
+## Dot as the outer supervisor
+
+For new long-running personal workflows, use a contract with:
+
+```json
+"supervisor": "dot"
+```
+
+In dot mode, Vector Cannon does **not** claim a private or undocumented dot API. It creates a hash-bound handoff when Jev/Sol cannot safely close the review. The external supervisor can return only `ACCEPT`, `REPAIR`, or `HUMAN_REQUIRED`; that decision cannot change scope, tests, budget, or permissions and cannot override a failed controller check.
+
+```bash
+vector-cannon outcome handoff --session /absolute/path/session
+
+vector-cannon outcome supervisor-submit \
+  --session /absolute/path/session \
+  --decision /absolute/path/dot-decision.json
+```
+
+If dot has optional local-computer access, it can work with local files and create Work or Codex tasks according to the user's ChatGPT configuration. Vector Cannon remains responsible for the completion contract and evidence; externally produced agent artifacts can also enter through `--candidate`.
+
+See [docs/DOT_SUPERVISOR.md](docs/DOT_SUPERVISOR.md) and [examples/outcome/dot-supervisor.json](examples/outcome/dot-supervisor.json).
+
 ## Real Jev and optional review tiers
 
 A contract must explicitly enable `semantic_review` and set `data_policy` to `redacted_evidence` before evidence can leave the machine.
@@ -71,7 +97,7 @@ vector-cannon outcome run \
   --execute
 ```
 
-Each configured tier is separately counted and reserved before the request. No automatic HTTP retries or gateway fallback chains are enabled. Missing tiers, exhausted budgets, invalid responses, stale evidence and low-confidence final review stop or escalate explicitly. A low-confidence Astra answer is **never** silently accepted.
+Each configured tier is separately counted and reserved before the request. No automatic HTTP retries or gateway fallback chains are enabled. In `supervisor=dot` mode, the normal path is controller → Jev → Sol → `DOT_HANDOFF`; no direct Astra call is made at that boundary. Existing `--astra-model` support remains for legacy human-supervisor contracts.
 
 The initial 0.90 acceptance threshold is a design default, not a calibrated success guarantee. Hard verification cannot be overruled by confidence scores, any model, or an agent's completion claim.
 
@@ -93,7 +119,7 @@ The source is copied with common dependency/cache folders excluded; symlinks, sp
 
 Old `providers`, `shot`, `fire`, `ledger` and `mission` commands still delegate to the v0.9 CLI. The old `mission` command uses the legacy generic JSON-judge path; **use `outcome` for real Jev and durable evidence-first control**.
 
-See [the design and migration notes](docs/OUTCOME_CONTROL_V1.md) for the acceptance boundary, risks, and honest live-test status. The unrelated draft Edge Miner track is unchanged.
+See [the design and migration notes](docs/OUTCOME_CONTROL_V1.md) and [dot supervisor protocol](docs/DOT_SUPERVISOR.md) for boundaries and live-test status. The unrelated draft Edge Miner track is unchanged.
 
 ```bash
 pytest -q
