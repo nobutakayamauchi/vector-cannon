@@ -37,7 +37,7 @@ class Judge(Protocol):
 
 
 def process(argv: list[str], cwd: Path, logs: Path, timeout: float, *, text: str = "", lock_fd: int | None = None) -> dict:
-    """Bounded process group, durable private logs, no shell, no inherited provider keys."""
+    """Bounded process group; only the explicit Codex credential allowlist is inherited."""
     logs.mkdir(parents=True, exist_ok=False, mode=0o700)
     input_path = logs / "stdin.txt"
     input_path.write_text(text, encoding="utf-8")
@@ -76,6 +76,7 @@ def process(argv: list[str], cwd: Path, logs: Path, timeout: float, *, text: str
             except ProcessLookupError:
                 pass
             child.wait(timeout=2)
+    limit = limit or out_path.stat().st_size + err_path.stat().st_size > 2 * 1024 * 1024
     input_path.unlink()  # Do not retain prompts or credentials in durable process logs.
     for path in (out_path, err_path):
         with path.open("rb") as f:

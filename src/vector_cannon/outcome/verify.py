@@ -39,7 +39,7 @@ def verify(contract: Contract, root: Path, *, revision: int, command: Callable |
                 if outcome.get("sandbox_verified") is not True:
                     raise ControlError("VERIFIER_SANDBOX_UNVERIFIED")
                 passed = (type(outcome.get("exit_code")) is int and outcome["exit_code"] == 0
-                          and outcome.get("timed_out") is False)
+                          and outcome.get("timed_out") is False and outcome.get("output_limited") is not True)
                 record["detail"] = "COMMAND_PASSED" if passed else "COMMAND_FAILED"
             else:
                 path = inside(root, criterion["path"])
