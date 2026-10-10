@@ -10,6 +10,7 @@ from pathlib import Path
 from .adapters import Agent, Judge
 from .model import Contract, ControlError, canonical, changed, copy_snapshot, digest, manifest, money
 from .store import Store, TERMINAL
+from .supervisor import build_dot_handoff
 from .verify import verify
 
 
@@ -98,6 +99,22 @@ class OutcomeEngine:
         self.store.save(state, reason)
         return self.store.report()
 
+    def _dot_handoff(self, state: dict, contract: Contract, reason: str):
+        if contract.payload.get("supervisor") != "dot":
+            state.update(phase="HUMAN_REQUIRED", reason=reason)
+            self.store.save(state, "HUMAN_SUPERVISOR_REQUIRED")
+            return
+        handoff = build_dot_handoff(self.store, state, contract, reason=reason)
+        state["handoff"] = handoff
+        state.update(phase="DOT_HANDOFF", reason=reason)
+        self.store.save(state, "DOT_HANDOFF_CREATED")
+
+    def _role_available(self, state: dict, contract: Contract, role: str) -> bool:
+        return (
+            role in self.judges
+            and state["calls"][role] < contract.limits["judge_calls"][role]
+        )
+
     def _verify(self, state: dict, contract: Contract):
         snapshot = self._snapshot(state)
         root = self.store.directory / f"verification-{state['generation']:04d}"
@@ -139,7 +156,8 @@ class OutcomeEngine:
         operation_id = self.store.reserve(state, "worker")
         receipt = self.agent.execute(contract, workspace, self.store.directory / (operation_id + "-logs"),
                                      {"operation_id": operation_id,
-                                      "checks": (state["evidence"] or {}).get("checks", [])},
+                                      "checks": (state["evidence"] or {}).get("checks", []),
+                                      "supervisor_note": state.get("supervisor_note")},
                                      max(0.01, state["deadline"] - time.time()), fd)
         if not isinstance(receipt, dict):
             raise ControlError("WORKER_RECEIPT_INVALID")
@@ -167,13 +185,25 @@ class OutcomeEngine:
         state["no_progress"] = state["no_progress"] + 1 if after == before else 0
         state["snapshot"], state["snapshot_hash"] = workspace.name, digest(after)
         state["candidate_revision"] += 1
+        state["supervisor_note"] = None
+        state["handoff"] = None
+        state["supervisor_decision"] = None
         state.update(phase="VERIFY", reason="CANDIDATE_NOT_YET_VERIFIED")
         self.store.save(state, "CANDIDATE_ADOPTED_FOR_VERIFICATION")
 
     def _judge(self, state: dict, contract: Contract):
         role = state["next_role"]
-        if role not in self.judges:
-            self._stop(state, "HUMAN_REQUIRED", "DECISION_ROLE_NOT_CONFIGURED:" + role)
+        if not self._role_available(state, contract, role):
+            if role == "jev" and self._role_available(state, contract, "sol"):
+                state.update(phase="JUDGE", next_role="sol", reason="JEV_UNAVAILABLE_ESCALATED")
+                self.store.save(state, "DECISION_TIER_SKIPPED")
+            elif contract.payload.get("supervisor") == "dot":
+                self._dot_handoff(state, contract, "DECISION_TIER_UNAVAILABLE:" + role)
+            elif role != "astra" and self._role_available(state, contract, "astra"):
+                state.update(phase="JUDGE", next_role="astra", reason="LEGACY_ASTRA_FALLBACK")
+                self.store.save(state, "DECISION_TIER_SKIPPED")
+            else:
+                self._stop(state, "HUMAN_REQUIRED", "DECISION_ROLE_NOT_CONFIGURED:" + role)
             return
         if contract.payload["data_policy"] != "redacted_evidence":
             self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
@@ -212,11 +242,16 @@ class OutcomeEngine:
         elif choice == "HUMAN_REQUIRED":
             state.update(phase="HUMAN_REQUIRED", reason="JUDGE_REQUESTED_HUMAN")
         else:
-            tiers = ["jev", "sol", "astra"]
-            if role == "astra":
-                state.update(phase="HUMAN_REQUIRED", reason="AUTOMATED_REVIEW_EXHAUSTED")
+            if role == "jev" and self._role_available(state, contract, "sol"):
+                state.update(phase="JUDGE", next_role="sol", reason="ESCALATION_REQUIRED")
+            elif contract.payload.get("supervisor") == "dot":
+                self.store.save(state, "DECISION_VALIDATED")
+                self._dot_handoff(state, contract, "DOT_SUPERVISOR_REVIEW_REQUIRED")
+                return
+            elif role != "astra" and self._role_available(state, contract, "astra"):
+                state.update(phase="JUDGE", next_role="astra", reason="LEGACY_ASTRA_ESCALATION")
             else:
-                state.update(phase="JUDGE", next_role=tiers[tiers.index(role) + 1], reason="ESCALATION_REQUIRED")
+                state.update(phase="HUMAN_REQUIRED", reason="AUTOMATED_REVIEW_EXHAUSTED")
         self.store.save(state, "DECISION_VALIDATED")
 
     def _seal(self, state: dict, contract: Contract):
