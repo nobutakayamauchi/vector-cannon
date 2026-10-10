@@ -234,8 +234,7 @@ class Contract:
         data.setdefault("data_policy", "local_only")
         if data["data_policy"] not in {"local_only", "redacted_evidence"}:
             raise ControlError("INVALID_DATA_POLICY")
-        data.setdefault("supervisor", "human")
-        if data["supervisor"] not in {"human", "dot"}:
+        if "supervisor" in data and data["supervisor"] not in {"human", "dot"}:
             raise ControlError("INVALID_SUPERVISOR")
         return cls(data)
 
