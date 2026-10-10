@@ -178,6 +178,7 @@ class Store:
             "delivery_integrity": integrity,
             "cost_scope": "Controller operations only; external generation, human labor and subscription fees excluded.",
             "mission_id": state["contract"]["id"], "state": phase, "reason": reason,
+            "supervisor_mode": state["contract"].get("supervisor", "human"),
             "contract_hash": state["contract_hash"], "candidate_revision": state["candidate_revision"],
             "snapshot_hash": state["snapshot_hash"], "evidence_hash": evidence.get("hash"),
             "criteria_passed": sum(c["status"] == "PASS" for c in checks),
