@@ -152,7 +152,7 @@ class Contract:
     @classmethod
     def parse(cls, raw: Any) -> "Contract":
         required = {"schema", "id", "goal", "allowed_files", "criteria", "limits"}
-        optional = {"semantic_review", "human_final", "data_policy"}
+        optional = {"semantic_review", "human_final", "data_policy", "supervisor"}
         if not isinstance(raw, dict) or required - raw.keys() or raw.keys() - required - optional:
             raise ControlError("INVALID_CONTRACT_FIELDS")
         data = strict_json(canonical(raw))  # defensive copy
@@ -234,6 +234,9 @@ class Contract:
         data.setdefault("data_policy", "local_only")
         if data["data_policy"] not in {"local_only", "redacted_evidence"}:
             raise ControlError("INVALID_DATA_POLICY")
+        data.setdefault("supervisor", "human")
+        if data["supervisor"] not in {"human", "dot"}:
+            raise ControlError("INVALID_SUPERVISOR")
         return cls(data)
 
     @property
