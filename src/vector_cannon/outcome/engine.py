@@ -193,6 +193,10 @@ class OutcomeEngine:
 
     def _judge(self, state: dict, contract: Contract):
         role = state["next_role"]
+        if role in self.judges and state["calls"][role] >= contract.limits["judge_calls"][role]:
+            state.update(phase="LIMIT_REACHED", reason=f"{role.upper()}_CALL_LIMIT")
+            self.store.save(state, "DECISION_CALL_LIMIT")
+            return
         if not self._role_available(state, contract, role):
             if role == "jev" and self._role_available(state, contract, "sol"):
                 state.update(phase="JUDGE", next_role="sol", reason="JEV_UNAVAILABLE_ESCALATED")
@@ -248,8 +252,11 @@ class OutcomeEngine:
                 self.store.save(state, "DECISION_VALIDATED")
                 self._dot_handoff(state, contract, "DOT_SUPERVISOR_REVIEW_REQUIRED")
                 return
-            elif role != "astra" and self._role_available(state, contract, "astra"):
-                state.update(phase="JUDGE", next_role="astra", reason="LEGACY_ASTRA_ESCALATION")
+            elif role != "astra" and "astra" in self.judges:
+                if self._role_available(state, contract, "astra"):
+                    state.update(phase="JUDGE", next_role="astra", reason="LEGACY_ASTRA_ESCALATION")
+                else:
+                    state.update(phase="LIMIT_REACHED", reason="ASTRA_CALL_LIMIT")
             else:
                 state.update(phase="HUMAN_REQUIRED", reason="AUTOMATED_REVIEW_EXHAUSTED")
         self.store.save(state, "DECISION_VALIDATED")
