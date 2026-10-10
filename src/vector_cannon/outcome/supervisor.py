@@ -107,6 +107,8 @@ def build_dot_handoff(store: Store, state: dict, contract: Contract, *, reason: 
 
 
 def load_handoff(store: Store, state: dict) -> dict:
+    if state.get("phase") != "DOT_HANDOFF":
+        raise ControlError("DOT_HANDOFF_NOT_CURRENT")
     ref = state.get("handoff")
     if not isinstance(ref, dict) or ref.get("kind") != "DOT_HANDOFF":
         raise ControlError("DOT_HANDOFF_NOT_AVAILABLE")
