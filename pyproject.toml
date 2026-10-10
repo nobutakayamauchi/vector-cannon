@@ -4,15 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vector-cannon"
-version = "0.6.0"
-description = "Budget-aware multi-provider inference access and personal fire-control system"
+version = "1.0.0a1"
+description = "Evidence-first outcome control for bounded AI work"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
-authors = [
-  { name = "Nobutaka Yamauchi" }
-]
-keywords = ["ai", "llm", "inference", "routing", "benchmark", "fire-control", "agents", "openai-compatible"]
+authors = [{ name = "Nobutaka Yamauchi" }]
+keywords = ["ai", "agents", "verification", "outcomes", "audit", "decision"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -22,7 +20,7 @@ classifiers = [
 ]
 
 [project.scripts]
-vector-cannon = "vector_cannon.cli:main"
+vector-cannon = "vector_cannon.outcome.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
