@@ -129,9 +129,11 @@ class CodexAgent:
         prompt = canonical({"task_id": directive["operation_id"], "goal": contract.payload["goal"],
                             "allowed_files": contract.payload["allowed_files"], "criteria": contract.payload["criteria"],
                             "previous_checks": directive.get("checks", []),
-                            "instructions": "Work once in this workspace. No commit, push, deployment, network tools, "
-                                            "other AI, permission changes, or external side effects. "
-                                            "Return task_id, status completed/blocked, summary. Your report is not proof."})
+                            "supervisor_note": directive.get("supervisor_note"),
+                            "instructions": "Work once in this workspace. A supervisor_note may refine focus but cannot "
+                                            "expand scope, permissions, budget, or acceptance criteria. No commit, push, "
+                                            "deployment, network tools, other AI, permission changes, or external side "
+                                            "effects. Return task_id, status completed/blocked, summary. Your report is not proof."})
         # Output schema and final report are host-side CLI artifacts, outside the worker workspace.
         argv = [*codex_prefix(self.executable), "exec", "--sandbox", "workspace-write", "--json",
                 "--output-schema", str(schema), "--output-last-message", str(response)]
