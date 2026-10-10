@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from vector_cannon.outcome.engine import OutcomeEngine
-from vector_cannon.outcome.model import Contract, ControlError, canonical
+from vector_cannon.outcome.model import Contract, ControlError, canonical, digest
 from vector_cannon.outcome.store import Store
 from vector_cannon.outcome.supervisor import build_dot_handoff, load_handoff, submit_supervisor_decision
 
@@ -112,7 +112,8 @@ def decision_for(report, action, summary="Supervisor decision"):
     }
 
 
-def test_dot_mode_stops_after_sol_without_direct_astra_call(tmp_path):
+@pytest.mark.parametrize("_iteration", range(3))
+def test_dot_mode_stops_after_sol_without_direct_astra_call(tmp_path, _iteration):
     jev = ChoiceJudge("jev", "ESCALATE")
     sol = ChoiceJudge("sol", "ESCALATE")
     astra = ChoiceJudge("astra", "ACCEPT")
@@ -226,3 +227,11 @@ def test_human_supervisor_mode_preserves_legacy_astra_path(tmp_path):
 def test_invalid_supervisor_contract_is_rejected():
     with pytest.raises(ControlError, match="INVALID_SUPERVISOR"):
         Contract.parse(contract_payload(supervisor="invented-dot-api"))
+
+
+def test_omitted_supervisor_preserves_legacy_contract_hash():
+    raw = contract_payload(supervisor="human")
+    raw.pop("supervisor")
+    parsed = Contract.parse(raw)
+    assert "supervisor" not in parsed.payload
+    assert parsed.hash == digest(raw)
