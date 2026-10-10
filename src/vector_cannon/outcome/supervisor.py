@@ -84,13 +84,13 @@ def build_dot_handoff(store: Store, state: dict, contract: Contract, *, reason: 
     md_path.write_text(
         "# Vector Cannon → dot handoff\n\n"
         f"Mission: **{contract.payload['id']}**\n\n"
-        f"Reason: \`{reason}\`\n\n"
-        f"Evidence hash: \`{evidence['hash']}\`\n\n"
+        f"Reason: `{reason}`\n\n"
+        f"Evidence hash: `{evidence['hash']}`\n\n"
         "## Controller checks\n"
         f"{rows or '- No checks present'}\n\n"
         "## Return contract\n"
-        "Return a JSON decision with exactly: \`schema\`, \`handoff_hash\`, \`evidence_hash\`, "
-        "\`action\`, \`summary\`. \`action\` must be \`ACCEPT\`, \`REPAIR\`, or \`HUMAN_REQUIRED\`. "
+        "Return a JSON decision with exactly: `schema`, `handoff_hash`, `evidence_hash`, "
+        "`action`, `summary`. `action` must be `ACCEPT`, `REPAIR`, or `HUMAN_REQUIRED`. "
         "The controller will reject stale or scope-expanding decisions.\n",
         encoding="utf-8",
     )
