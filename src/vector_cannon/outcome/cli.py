@@ -12,6 +12,7 @@ from .adapters import CodexAgent, ImportAgent, NativeJev, TextJudge
 from .engine import OutcomeEngine
 from .model import Contract, ControlError, canonical, strict_json
 from .store import Store
+from .supervisor import load_handoff, submit_supervisor_decision
 
 
 def adapters(args):
@@ -32,7 +33,7 @@ def _adapter_flags(parser):
     parser.add_argument("--worker-model", default=None)
     parser.add_argument("--jev", action="store_true", help="Opt in to the real Jev decision endpoint.")
     parser.add_argument("--sol-model", default=None, help="Explicit AI Gateway model ID for the Sol role.")
-    parser.add_argument("--astra-model", default=None, help="Explicit AI Gateway model ID for the Astra role.")
+    parser.add_argument("--astra-model", default=None, help="Legacy direct Astra review model. Prefer contract supervisor=dot for top-level escalation.")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -56,6 +57,11 @@ def parser() -> argparse.ArgumentParser:
     accept.add_argument("--session", required=True, type=Path)
     accept.add_argument("--evidence-hash", required=True)
     _adapter_flags(accept)
+    handoff = sub.add_parser("handoff", help="Print the current hash-bound external supervisor handoff.")
+    handoff.add_argument("--session", required=True, type=Path)
+    submit = sub.add_parser("supervisor-submit", help="Apply a hash-bound external supervisor decision.")
+    submit.add_argument("--session", required=True, type=Path)
+    submit.add_argument("--decision", required=True, type=Path)
     for action in ("status", "report"):
         item = sub.add_parser(action)
         item.add_argument("--session", required=True, type=Path)
@@ -67,6 +73,15 @@ def outcome_main(argv: list[str] | None = None) -> int:
     try:
         if args.action in {"status", "report"}:
             result = Store(args.session).report()
+        elif args.action == "handoff":
+            store = Store(args.session)
+            state = store.load()
+            result = load_handoff(store, state)
+        elif args.action == "supervisor-submit":
+            result = submit_supervisor_decision(
+                Store(args.session),
+                strict_json(args.decision.read_text(encoding="utf-8")),
+            )
         elif args.action == "plan" or (args.action == "run" and not args.execute):
             contract = Contract.parse(strict_json(args.contract.read_text(encoding="utf-8")))
             result = {"state": "PLAN_ONLY", "contract_hash": contract.hash, "contract": contract.payload,
@@ -88,7 +103,7 @@ def outcome_main(argv: list[str] | None = None) -> int:
             else:
                 result = engine.run(max_operations=1 if args.step else None)
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if result.get("state") in {"PLAN_ONLY", "VERIFIED_DONE", "VERIFY", "READY", "JUDGE", "SEAL"} else 1
+        return 0 if result.get("state") in {"PLAN_ONLY", "VERIFIED_DONE", "VERIFY", "READY", "JUDGE", "SEAL", "DOT_HANDOFF"} or result.get("kind") == "DOT_HANDOFF" else 1
     except (ControlError, ValueError, OSError, sqlite3.DatabaseError) as exc:
         # Provider credentials, arbitrary raw logs, and HTTP response bodies are not printed.
         reason = str(exc) if isinstance(exc, ControlError) else type(exc).__name__

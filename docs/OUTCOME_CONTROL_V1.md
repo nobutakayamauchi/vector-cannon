@@ -1,5 +1,28 @@
 # VC-OUTCOME-001 — evidence-first control, 2026-10-10
 
+## 1.1 dot-supervisor update
+
+The preferred personal architecture is now:
+
+```text
+dot / operator
+  ↑↓ hash-bound supervisor handoff
+Vector Cannon Outcome Control
+  ↓
+Controller evidence → Jev → optional Sol
+  ↓
+Codex / imported agent artifact
+```
+
+A dot is treated as an **external supervisor**, not as a callable Astra model endpoint. Vector Cannon emits a controller-produced `DOT_HANDOFF` when a dot-supervised mission still needs semantic judgment after Jev/Sol (or when those tiers are unavailable). Returned supervisor decisions are explicitly labeled `UNATTESTED_EXTERNAL_SUPERVISOR` because this repository has no cryptographic proof that a particular ChatGPT dot authored the file.
+
+The return surface is intentionally tiny: `ACCEPT`, `REPAIR`, or `HUMAN_REQUIRED`. None can change the immutable mission contract. `ACCEPT` is rejected unless all current controller checks are PASS. `REPAIR` may add a bounded focus note to the next worker attempt but cannot change scope, permissions, budget, acceptance criteria, or deployment rights.
+
+Direct Astra review remains implemented for compatibility when `supervisor` is omitted (historical behavior) or explicitly `human`. New dot-oriented example contracts set `"supervisor": "dot"` and normally set the Astra call cap to zero.
+
+Contracts created before this update keep their original serialized payload and hash: an omitted `supervisor` is interpreted as human behavior without being injected into the stored contract JSON.
+
+
 Status: internal-use alpha implementation. Supersedes the launcher-centric v0.9 completion claim; does not claim all original product goals are finished.
 
 ## Architecture decision
@@ -63,7 +86,7 @@ A human can accept only an already fully verified human-final delivery, by expli
 
 ## Cost and Astra reduction
 
-Simple repairs and complete deterministic outcomes need no AI judge. Optional semantic reviews call Jev first, then configured Sol, then configured Astra only when needed.
+Simple repairs and complete deterministic outcomes need no AI judge. In new dot-supervised missions, optional semantic reviews call Jev first, then configured Sol, then stop at a hash-bound dot handoff if unresolved. Direct Astra is a legacy compatibility route for human-supervisor contracts.
 
 Reservations and known observed cost are separate. Unknown cost blocks further calls under `unknown_cost=stop`. `bounded_calls` is an explicit opt-in for subscriptions/unobservable prices, with call and time limits still enforced. A configured monetary cap requires a per-role reservation. An observed overrun stops future work, not prior billing.
 
@@ -90,8 +113,9 @@ Still requires the user's authenticated execution host:
 
 1. Confirm current Codex fingerprint and workspace sandbox.
 2. Run one noncritical coding mission with independent tests.
-3. Run one real Jev review through the new native endpoint.
-4. Observe any Sol/Astra route separately; missing configuration must stop, not invent a route.
-5. Measure real intervention count, verified quality and cost before claiming ROI or external product readiness.
+3. Run one real Jev review through the native endpoint.
+4. Exercise one real `DOT_HANDOFF` on a machine accessible to the configured dot and return a hash-bound decision.
+5. Observe any Sol route separately; direct Astra should be tested only as a legacy compatibility path.
+6. Measure real intervention count, verified quality and cost before claiming ROI or external product readiness.
 
 These gates are explicitly not covered by mocked tests or old W06R3 success from the previous launcher.

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .model import ControlError, Contract, ROLES, canonical, digest, manifest, money, strict_json
 
-TERMINAL = {"VERIFIED_DONE", "HUMAN_REQUIRED", "BLOCKED", "LIMIT_REACHED"}
+TERMINAL = {"VERIFIED_DONE", "HUMAN_REQUIRED", "BLOCKED", "LIMIT_REACHED", "DOT_HANDOFF"}
 
 
 class Store:
@@ -41,6 +41,7 @@ class Store:
             "decisions": [], "no_progress": 0, "in_flight": None, "last_receipt": None,
             "known_cost_usd": "0", "committed_usd": "0", "unknown_cost_calls": 0,
             "cost_status": "NO_CALLS", "candidate_revision": 0, "output": None,
+            "handoff": None, "supervisor_decision": None, "supervisor_note": None,
         }, "CREATED")
         store.path.chmod(0o600)
         return store
@@ -177,6 +178,7 @@ class Store:
             "delivery_integrity": integrity,
             "cost_scope": "Controller operations only; external generation, human labor and subscription fees excluded.",
             "mission_id": state["contract"]["id"], "state": phase, "reason": reason,
+            "supervisor_mode": state["contract"].get("supervisor", "human"),
             "contract_hash": state["contract_hash"], "candidate_revision": state["candidate_revision"],
             "snapshot_hash": state["snapshot_hash"], "evidence_hash": evidence.get("hash"),
             "criteria_passed": sum(c["status"] == "PASS" for c in checks),
@@ -187,7 +189,9 @@ class Store:
             "cost_per_verified_outcome_usd": (
                 state["known_cost_usd"] if phase == "VERIFIED_DONE" and not state["unknown_cost_calls"] else None
             ),
-            "decisions": state["decisions"], "output": state["output"], "in_flight": state["in_flight"],
+            "decisions": state["decisions"], "handoff": state.get("handoff"),
+            "supervisor_decision": state.get("supervisor_decision"),
+            "output": state["output"], "in_flight": state["in_flight"],
             "deployment": "NOT_PERFORMED", "source_modified_by_controller": False,
             "execution_assurance": state["identity"].get("agent"),
         }
