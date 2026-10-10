@@ -1,0 +1,42 @@
+name: Outcome Acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e . pytest
+      - name: Full regression and outcome acceptance
+        run: pytest -q --junitxml=/tmp/outcome-tests.xml
+      - name: Offline two-step demo - not real AI execution
+        run: python examples/outcome/offline_demo.py > /tmp/outcome-offline-demo.json
+      - name: Installed CLI compatibility and zero-call planning
+        run: |
+          vector-cannon providers
+          vector-cannon outcome plan --contract examples/outcome/fixture.json > /tmp/outcome-plan.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: outcome-evidence-python-${{ matrix.python }}
+          path: |
+            /tmp/outcome-tests.xml
+            /tmp/outcome-offline-demo.json
+            /tmp/outcome-plan.json
+          if-no-files-found: warn

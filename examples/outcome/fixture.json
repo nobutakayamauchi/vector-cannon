@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "first-outcome",
+  "goal": "Create out.txt containing exactly ready followed by one newline.",
+  "allowed_files": ["out.txt"],
+  "criteria": [{"id": "AC-1", "description": "Exact agreed artifact contents.", "kind": "text_equals", "path": "out.txt", "expect": "ready\n"}],
+  "limits": {
+    "shots": 3, "seconds": 600, "no_progress": 2,
+    "judge_calls": {"jev": 3, "sol": 2, "astra": 1},
+    "max_usd": null,
+    "reserve_usd": {"worker": null, "jev": null, "sol": null, "astra": null},
+    "unknown_cost": "bounded_calls"
+  },
+  "semantic_review": false,
+  "human_final": false,
+  "data_policy": "local_only"
+}

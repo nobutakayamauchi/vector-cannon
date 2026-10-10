@@ -1,292 +1,100 @@
-# Vector Cannon
+# Vector Cannon — Outcome Control Plane
 
-**Fire the AI you need without rebuilding the route every time. Fire cheap first; escalate only when the target deserves it.**
+**Give an agent a bounded job. Accept its output only when independent evidence meets the agreed contract.**
 
-Vector Cannon is a budget-aware, multi-provider inference firing controller.
-
-Its first mission is simple:
-
-> **Reduce the number of people who cannot fire the model they need.**
-
-New models appear constantly. Provider UIs, APIs, authentication, pricing, quotas, and model catalogs differ. Subscription limits run dry. Sometimes you want one Claude/Kimi/Gemini/Astra-class shot without maintaining another monthly subscription.
-
-Vector Cannon turns approved inference venues into reusable firing lanes, keeps per-shot budget controls, and records every shot so model choice can become evidence instead of guesswork.
-
-## Quick start
-
-```bash
-git clone https://github.com/nobutakayamauchi/vector-cannon.git
-cd vector-cannon
-python -m pip install -e .
-vector-cannon doctor
-```
-
-Set only the keys for the firing lanes you actually use. Never commit keys.
-
-```bash
-export AI_GATEWAY_API_KEY='...'
-export OPENROUTER_API_KEY='...'
-# or OPENAI_API_KEY / UNOROUTER_API_KEY / GEMINI_API_KEY /
-# TOGETHER_API_KEY / FIREWORKS_API_KEY / GROQ_API_KEY
-```
-
-## 1. Check the energy lines
-
-```bash
-vector-cannon doctor
-```
-
-`READY` means the required local credential is present. `UNARMED` means Vector Cannon knows the approved lane but does not currently have its key.
-
-List models visible through a firing lane:
-
-```bash
-vector-cannon models --provider unorouter --contains free
-vector-cannon models --provider vercel --contains astra
-```
-
-Model ids, prices, discounts, quotas, and availability change. Discover and verify current provider state rather than treating an old example as permanent truth.
-
-## 2. Direct shot — no repository required
-
-Fire a normal bounded inference request:
-
-```bash
-vector-cannon shot \
-  --provider openrouter \
-  --model YOUR_MODEL_ID \
-  --text 'Compare these two approaches and recommend one.' \
-  --max-usd 0.50 \
-  --tag trial-shot-01
-```
-
-For longer prompts:
-
-```bash
-vector-cannon shot \
-  --provider vercel \
-  --model openai/YOUR_MODEL_ID \
-  --prompt-file ./mission.md \
-  --reasoning low \
-  --max-usd 1.00
-```
-
-This is the first Inference Access Layer: if an approved venue legitimately exposes a model, Vector Cannon should make that route repeatable without making the operator rediscover the whole firing procedure.
-
-Vector Cannon does **not** bypass authentication, access controls, rate limits, provider restrictions, or terms.
-
-## 3. Repository shot
-
-The original read-only repository cannon remains available:
-
-```bash
-vector-cannon fire \
-  --provider unorouter \
-  --model gpt-oss-120b:free \
-  --repo ../your-repo \
-  --prompt prompts/vector_cannon/repo_recon.md \
-  --max-usd 0.25 \
-  --tag free-recon-01
-```
-
-Repository shots expose only bounded read-only tools. Fired models can list paths, read bounded text files, and search text. They do not receive repository write, commit, PR, deploy, shell, or arbitrary network tools.
-
-## 4. Personal Vector Ledger
-
-Every direct or repository shot writes a JSON firing record under `~/.vector-cannon/runs/` by default.
-
-Summarize the current firing history:
-
-```bash
-vector-cannon ledger
-```
-
-The first ledger view aggregates:
-
-- shot count
-- observed/estimated spend
-- average elapsed time
-- failures / truncated runs
-- input/output tokens
-- provider
-- exact model id
-
-Raw run JSON remains the source of truth. Failures are preserved because failed shots are evidence for future routing.
-
-## Why
-
-Frontier models can be excellent and expensive. Smaller models, free tiers, promotional pricing, routers, and new providers change constantly.
-
-Vector Cannon treats inference capacity like ammunition:
-
-1. discover an approved firing lane,
-2. fire the cheapest plausible model,
-3. measure result, latency, and cost,
-4. escalate only when a material question remains,
-5. retain the shot as evidence for the next mission.
-
-The long-term question is not simply **"Which AI is smartest?"**
-
-It is:
-
-> **Who should I fire, when should I fire them, where should I fire them from, how many shots should I take, and how much should I spend?**
-
-## VECTOR CANNON MODE — target architecture
-
-The maximum-form product is a **Personal AI Fire-Control System**.
-
-Future firing sequence:
-
-1. **MISSION LOAD** — load the target and similar historical shots
-2. **ENERGY LINE — ALL CONNECTED** — enumerate available inference venues/models
-3. **LANDING GEAR / EISEN LOCK** — lock budget, permissions, data boundary and shot count
-4. **CHAMBER PRESSURE CHECK** — confirm price, availability and observable balance/quota
-5. **RIFLING ROTATION START** — derive a firing plan from the personal ledger
-6. **VECTOR ALIGNMENT** — assign recon / critique / coding / synthesis roles
-7. **READY TO FIRE**
-8. **FIRE**
-
-Every readiness message should correspond to a real system state. No fake telemetry.
-
-## Adaptive mission control — Jev first, Astra last
-
-Vector Cannon can now treat implementation and judgment as separate control layers.
-
-The decision path is intentionally asymmetric:
-
-1. **Controller** records facts: launcher state, changed files, patch verification, and test results.
-2. **Jev** makes the normal typed completion decision.
-3. **Sol** is used only when Jev explicitly escalates or returns invalid typed output.
-4. **Astra** is the last automated court. The default adaptive mission budget allows at most **one Astra judgment**.
-5. If the configured automated judgment budget is exhausted, the mission stops with `HUMAN_REQUIRED` instead of silently spending another expensive judgment.
-
-A `DONE` judgment is accepted only when every acceptance criterion is explicitly assessed, the controller reports `SUCCEEDED`, there are no scope violations, and controller verification passed.
-
-A job spec is normal JSON:
-
-```json
-{
-  "job_id": "demo-job",
-  "mission": "Create fixture-output.txt with the required contents.",
-  "acceptance_criteria": [
-    {"id": "AC-001", "description": "fixture-output.txt has the required contents"},
-    {"id": "AC-002", "description": "controller verification passes"}
-  ],
-  "allowed_files": ["fixture-output.txt"],
-  "verification_commands": [
-    ["python3", "-c", "from pathlib import Path; assert Path('fixture-output.txt').exists()"]
-  ],
-  "max_shots": 4,
-  "timeout_seconds": 120,
-  "max_sol_judgments": 2,
-  "max_astra_judgments": 1
-}
-```
-
-Inspect the mission plan without firing any AI:
-
-```bash
-vector-cannon mission \
-  --job ./job.json \
-  --repo ../target-repo \
-  --session-dir /tmp/vector-cannon-demo \
-  --jev-provider YOUR_PROVIDER \
-  --jev-model YOUR_JEV_MODEL \
-  --sol-provider YOUR_PROVIDER \
-  --sol-model YOUR_SOL_MODEL \
-  --astra-provider YOUR_PROVIDER \
-  --astra-model YOUR_ASTRA_MODEL
-```
-
-The plan-only form performs **zero AI executions**.
-
-Add `--execute` only when ready to run the mission. The source repository must be clean. Vector Cannon creates a private staging clone, fires Codex only inside isolated per-shot clones, independently verifies each patch in a separate clone, and carries successful patches forward only inside the staging repository. The original source repository is not modified. The final cumulative patch is written to `SESSION_DIR/final.patch`.
-
-This closes the adaptive control loop:
+Version `1.0.0a1` is an internal-use alpha, not a claim of production certification or live Jev acceptance.
 
 ```text
-JOB -> Shot -> Controller evidence -> Jev
-                              |-> DONE
-                              |-> CONTINUE / REPAIR / REVIEW -> next Shot
-                              |-> Sol -> Astra -> HUMAN_REQUIRED
+Operator-owned Mission Contract
+        ↓
+Isolated candidate (Codex or an imported agent export)
+        ↓
+Controller scope checks + independent verifiers
+        ├─ failed checks → bounded repair
+        ├─ unknown / unauthorized / no progress → human or blocked
+        ├─ all checks pass → optional Jev → Sol → Astra review
+        ↓
+Hash-bound VERIFIED_DONE + delivery + cumulative patch + report
 ```
-## Personal firing doctrine
 
-As the ledger grows, Vector Cannon should learn that different operators need different weapons at different times.
+## What changed
 
-One operator may evolve toward cheap high-volume swarm shots. Another may favor critique-heavy routes. Another may use frontier models only as a final sniper shot.
+Vector Cannon is no longer trying to compete with model gateways, catalogues, or coding agents. Existing provider/launcher functionality is retained for compatibility. The new product centre is the **mission contract, evidence, durable control state, and verified outcome**.
 
-The system should eventually be able to say things such as:
+The controller can decide simple cases without calling any model. Jev is a genuine typed-decision adapter using the documented Vercel `/v1/evaluate` endpoint, **not** a chat model asked to emit JSON. Sol and Astra are operator-configured review roles; no public model IDs or subscriptions are assumed.
 
-- this task does not justify a frontier shot yet,
-- this class of task repeatedly fails on the cheap route,
-- this model is under-tested for your workload,
-- cheap recon followed by one frontier synthesis shot has historically been the best tradeoff,
-- you are escalating too late or using an expensive model as overkill.
-
-That makes Vector Cannon both a firing controller and an AI-use training system.
-
-## Providers
-
-Current built-in approved lanes:
-
-- Vercel AI Gateway
-- OpenAI
-- OpenRouter
-- UnoRouter
-- Gemini OpenAI compatibility
-- Together AI
-- Fireworks AI
-- Groq
-
-Provider endpoints and secret names are fixed in code. A prompt or issue body cannot redirect an API key to an arbitrary host.
-
-UnoRouter models ending in `:free` are treated as provider-declared zero-cost models for preflight accounting. Free models may still have provider/rate limits and availability constraints.
-
-## Budget semantics
-
-`--max-usd` is a best-effort per-shot ceiling.
-
-Vector Cannon fails closed when it cannot establish a trusted price. Depending on the provider, cost may come from an exact balance delta, provider-reported request cost, live catalog pricing, a provider-declared free model, or explicit current token prices supplied by the operator.
-
-For providers without trusted live pricing, pass current prices explicitly:
+## Install and inspect
 
 ```bash
-vector-cannon shot \
-  --provider openai \
-  --model YOUR_MODEL_ID \
-  --text 'Your mission here' \
-  --input-price-per-million CURRENT_INPUT_PRICE \
-  --output-price-per-million CURRENT_OUTPUT_PRICE \
-  --max-usd 1.00
+python3 -m pip install -e .
+vector-cannon outcome plan --contract examples/outcome/fixture.json
 ```
 
-Budget control is intended to prevent careless burns, not to replace provider-side spend limits.
+`plan` validates the complete contract without filesystem changes or network/model calls. The normal `run` form also remains a plan unless `--execute` is supplied.
 
-## Optional GitHub Issue FIRE channel
+Offline acceptance demonstration (explicitly **not real AI execution**):
 
-The included `.github/workflows/vector-cannon.yml` can fire only when the repository owner opens an issue whose title starts with `[VECTOR-CANNON]`.
+```bash
+python3 examples/outcome/offline_demo.py
+```
 
-Store provider keys as GitHub Actions repository secrets. The workflow accepts provider/model/budget fields from the issue body, but never API keys or arbitrary provider URLs.
+## Run and resume
 
-## Safety boundary
+```bash
+vector-cannon outcome run \
+  --contract examples/outcome/fixture.json \
+  --source /absolute/path/to/project \
+  --session /absolute/path/outside-project/new-session \
+  --execute
 
-- approved provider hosts are fixed in code
-- credentials are read from dedicated environment variables
-- arbitrary provider URLs are not accepted from prompts/issues
-- repository mode is read-only and filters common secrets/build/dependency paths
-- budget checks fail closed when pricing cannot be trusted
+vector-cannon outcome status --session /absolute/path/outside-project/new-session
+vector-cannon outcome resume --session /absolute/path/outside-project/new-session --execute
+```
 
-Treat repository filtering as a defensive boundary, not a formal DLP system. Do not aim Vector Cannon at sensitive data unless the selected provider and workflow are appropriate for that data.
+Codex must already be installed and authenticated. The controller checks its local entry point and sandbox before starting a worker. It does not install a CLI, change AppArmor, disable sandboxing, or modify account credentials. Linux/POSIX is the initial execution target.
 
-## Status
+`--step` checkpoints after one external operation. Resuming a completed operation never replays it. If execution was interrupted after reservation but before a recorded return, the session stops as `HUMAN_REQUIRED`; it does **not** guess that nothing happened and fire again. A disconnected CLI does not prove that remote work or billing stopped.
 
-v0.9 development line: **Jev-first Decision Gate + Adaptive Mission Control**.
+## Real Jev and optional review tiers
 
-The MVP is intentionally smaller than the vision.
+A contract must explicitly enable `semantic_review` and set `data_policy` to `redacted_evidence` before evidence can leave the machine.
 
-**Maximum form:** Personal AI Fire-Control System.
+```bash
+# Set AI_GATEWAY_API_KEY securely in the runtime, never in a tracked file.
+vector-cannon outcome run \
+  --contract /absolute/path/review-mission.json \
+  --source /absolute/path/project \
+  --session /absolute/path/new-session \
+  --jev \
+  --sol-model YOUR_EXACT_GATEWAY_MODEL_ID \
+  --astra-model YOUR_EXACT_GATEWAY_MODEL_ID \
+  --execute
+```
 
-**First implementation:** make legitimate inference dramatically easier to fire, then turn every firing record into better future routing.
+Each configured tier is separately counted and reserved before the request. No automatic HTTP retries or gateway fallback chains are enabled. Missing tiers, exhausted budgets, invalid responses, stale evidence and low-confidence final review stop or escalate explicitly. A low-confidence Astra answer is **never** silently accepted.
 
-See issue #1 for the roadmap.
+The initial 0.90 acceptance threshold is a design default, not a calibrated success guarantee. Hard verification cannot be overruled by confidence scores, any model, or an agent's completion claim.
+
+## Non-code work
+
+Use `--candidate /absolute/path/to/export` to assess files produced by another agent without claiming to have executed that agent. Built-in verifiers cover exact/contained text, SHA-256, JSON fields, CSV columns/row counts/uniqueness, and sandboxed commands. URL liveness, factual truth, licensing, sales outcomes, and visual quality are **not** implied by structural checks.
+
+For sandboxed command checks, use the Codex adapter. Import-only verification deliberately cannot run arbitrary commands on the host.
+
+## Outputs and limits
+
+Each session contains `control.sqlite3`, per-operation logs, independent verification copies, candidate snapshots, and `report.json`. A verified outcome additionally contains `delivery/` and `final.patch`. Status rechecks sealed delivery hashes. Exported patches are never automatically applied to the original project, committed there, pushed, merged, or deployed.
+
+Limits include worker attempts, per-role review attempts, elapsed mission time, no-progress detection, and monetary reservations. Missing money/quota observations remain UNKNOWN. Monetary reservations are **planning controls, not guaranteed provider-side hard spend caps**; overruns stop subsequent work but cannot undo an already billed call. Imports do not reveal their external generation cost.
+
+The source is copied with common dependency/cache folders excluded; symlinks, special files, common secret filenames, oversized artifacts and hidden scope expansion are rejected. These checks are not a formal DLP system or an adversarial multi-tenant sandbox. Use a dedicated execution account for untrusted repositories.
+
+## Compatibility and validation
+
+Old `providers`, `shot`, `fire`, `ledger` and `mission` commands still delegate to the v0.9 CLI. The old `mission` command uses the legacy generic JSON-judge path; **use `outcome` for real Jev and durable evidence-first control**.
+
+See [the design and migration notes](docs/OUTCOME_CONTROL_V1.md) for the acceptance boundary, risks, and honest live-test status. The unrelated draft Edge Miner track is unchanged.
+
+```bash
+pytest -q
+```
