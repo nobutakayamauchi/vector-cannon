@@ -36,11 +36,12 @@ def rebuild(engine, state=None, **kwargs):
                              reason=kwargs.get("reason", state["reason"]))
 
 
+@pytest.mark.parametrize("iteration", range(3))
 @pytest.mark.parametrize("roles", [(), ("jev",), ("sol",), ("jev", "sol", "astra")])
-def test_local_only_stops_before_any_external_review_or_handoff(tmp_path, roles):
+def test_local_only_stops_before_any_external_review_or_handoff(tmp_path, roles, iteration):
     engine, _, judges = make_engine(tmp_path, policy="local_only", roles=roles)
     report = engine.run()
-    assert report["state"] == "HUMAN_REQUIRED"
+    assert report["state"] == "HUMAN_REQUIRED", report
     assert report["reason"] == "EXTERNAL_EVIDENCE_NOT_AUTHORIZED"
     assert report["handoff"] is None
     assert not (engine.store.directory / "handoff").exists()
