@@ -17,8 +17,12 @@ from .verify import verify
 def git(root: Path, *args: str) -> bytes:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+    # Controller-owned snapshots must not start housekeeping that can mutate .git
+    # after this command returns and race the independent worker-tamper check.
+    # Command-scoped overrides leave user/system/repository configuration intact.
     cmd = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-           "-c", "core.autocrlf=false", "-C", str(root), *args]
+           "-c", "core.autocrlf=false", "-c", "maintenance.auto=false",
+           "-c", "gc.auto=0", "-C", str(root), *args]
     result = subprocess.run(cmd, capture_output=True, env=env, timeout=30)
     if result.returncode:
         raise ControlError("LOCAL_GIT_OPERATION_FAILED")
