@@ -104,7 +104,14 @@ class OutcomeEngine:
             state.update(phase="HUMAN_REQUIRED", reason=reason)
             self.store.save(state, "HUMAN_SUPERVISOR_REQUIRED")
             return
+        if contract.payload["data_policy"] != "redacted_evidence":
+            self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
+            return
+        if state["phase"] != "HANDOFF_PENDING":
+            state.update(phase="HANDOFF_PENDING", reason=reason, handoff_reason=reason)
+            self.store.save(state, "DOT_HANDOFF_PENDING")
         handoff = build_dot_handoff(self.store, state, contract, reason=reason)
+        state.pop("handoff_reason", None)
         state["handoff"] = handoff
         state.update(phase="DOT_HANDOFF", reason=reason)
         self.store.save(state, "DOT_HANDOFF_CREATED")
@@ -197,6 +204,9 @@ class OutcomeEngine:
             state.update(phase="LIMIT_REACHED", reason=f"{role.upper()}_CALL_LIMIT")
             self.store.save(state, "DECISION_CALL_LIMIT")
             return
+        if contract.payload["data_policy"] != "redacted_evidence":
+            self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
+            return
         if not self._role_available(state, contract, role):
             if role == "jev" and self._role_available(state, contract, "sol"):
                 state.update(phase="JUDGE", next_role="sol", reason="JEV_UNAVAILABLE_ESCALATED")
@@ -208,9 +218,6 @@ class OutcomeEngine:
                 self.store.save(state, "DECISION_TIER_SKIPPED")
             else:
                 self._stop(state, "HUMAN_REQUIRED", "DECISION_ROLE_NOT_CONFIGURED:" + role)
-            return
-        if contract.payload["data_policy"] != "redacted_evidence":
-            self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
             return
         self._snapshot(state)
         evidence = state["evidence"]
@@ -325,11 +332,16 @@ class OutcomeEngine:
                     elif state["phase"] == "JUDGE":
                         self._judge(state, contract)
                         operations += 1
+                    elif state["phase"] == "HANDOFF_PENDING":
+                        self._dot_handoff(state, contract, state["handoff_reason"])
                     elif state["phase"] == "SEAL":
                         self._seal(state, contract)
                     else:
                         return self._stop(state, "HUMAN_REQUIRED", "INTERRUPTED_CHECKPOINT_REQUIRES_RECONCILIATION")
             except (ControlError, OSError, ValueError, subprocess.SubprocessError) as exc:
+                if isinstance(exc, OSError) and state["phase"] == "HANDOFF_PENDING":
+                    # Only local publication is retried; the durable checkpoint skips judges/workers.
+                    return self._stop(state, "HANDOFF_PENDING", "DOT_HANDOFF_IO_RETRY_REQUIRED")
                 # A timeout or broken connection can still have billed/executed remotely.
                 reason = str(exc) if isinstance(exc, ControlError) else type(exc).__name__
                 phase = "HUMAN_REQUIRED" if state["in_flight"] else "BLOCKED"

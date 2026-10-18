@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -165,8 +166,9 @@ def test_symlink_handoff_directory_is_rejected(tmp_path):
     assert {p.name: p.read_bytes() for p in outside.iterdir()} == before
 
 
-def test_resume_after_files_written_before_state_save_does_not_repeat_worker(tmp_path, monkeypatch):
-    engine, agent, _ = make_engine(tmp_path)
+@pytest.mark.parametrize("roles", [(), ("jev", "sol")])
+def test_resume_after_files_written_before_state_save_does_not_repeat_worker(tmp_path, monkeypatch, roles):
+    engine, agent, judges = make_engine(tmp_path, roles=roles)
     save = engine.store.save
 
     class SimulatedPowerLoss(BaseException):
@@ -181,10 +183,11 @@ def test_resume_after_files_written_before_state_save_does_not_repeat_worker(tmp
     with pytest.raises(SimulatedPowerLoss):
         engine.run()
     assert list((engine.store.directory / "handoff").glob("*.json"))
-    assert engine.store.load()["phase"] == "JUDGE"
+    assert engine.store.load()["phase"] == "HANDOFF_PENDING"
     monkeypatch.setattr(engine.store, "save", save)
     assert engine.run()["state"] == "DOT_HANDOFF"
     assert agent.calls == 1
+    assert all(judge.calls == 1 for judge in judges.values())
 
 
 @pytest.mark.parametrize("drift", ["revision", "snapshot", "hash"])
@@ -247,3 +250,48 @@ def test_oversize_handoff_is_rejected_before_publication(tmp_path):
     with pytest.raises(ControlError, match="DOT_HANDOFF_TOO_LARGE"):
         rebuild(engine, state)
     assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+
+
+@pytest.mark.parametrize("roles", [(), ("jev", "sol")])
+def test_local_io_failure_is_resumable_without_repeating_external_calls(tmp_path, monkeypatch, roles):
+    engine, agent, judges = make_engine(tmp_path, roles=roles)
+    link = os.link
+
+    def fail_markdown_once(source, target, **kwargs):
+        if Path(target).suffix == ".md":
+            raise OSError("synthetic publication interruption")
+        return link(source, target, **kwargs)
+
+    monkeypatch.setattr(os, "link", fail_markdown_once)
+    first = engine.run()
+    assert first["state"] == "HANDOFF_PENDING"
+    assert first["reason"] == "DOT_HANDOFF_IO_RETRY_REQUIRED"
+    assert list((engine.store.directory / "handoff").glob("*.json"))
+    monkeypatch.setattr(os, "link", link)
+    assert engine.run()["state"] == "DOT_HANDOFF"
+    assert agent.calls == 1
+    assert all(judge.calls == 1 for judge in judges.values())
+
+
+def test_unsafe_pre_fix_handoff_requires_rebuild_instead_of_disclosure(tmp_path):
+    engine, _, _ = make_engine(tmp_path)
+    report = engine.run()
+    state = engine.store.load()
+    path = Path(report["handoff"]["json"])
+    payload = json.loads(path.read_text())
+    payload["goal"] = "password=fixture-legacy-value"
+    payload["handoff_hash"] = digest({k: v for k, v in payload.items() if k != "handoff_hash"})
+    path.write_text(canonical(payload))
+    state["handoff"]["handoff_hash"] = payload["handoff_hash"]
+    with pytest.raises(ControlError, match="DOT_HANDOFF_REBUILD_REQUIRED"):
+        load_handoff(engine.store, state)
+
+
+@pytest.mark.parametrize("text", [
+    "password='fixture with spaces' and a safe suffix",
+    '{"token":"fixture-json-value","ok":true}',
+    "Bearer fixture-bearer-value\nsafe next line",
+    "api_key=sk-fixture0123456789",
+])
+def test_known_secret_redaction_is_idempotent(text):
+    assert redact(redact(text)) == redact(text)
