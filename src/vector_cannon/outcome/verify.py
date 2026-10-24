@@ -12,7 +12,7 @@ from typing import Any, Callable
 from .model import Contract, ControlError, canonical, digest, inside, manifest, strict_json
 
 
-_SECRET_KEY = r"(?:api[_-]?key|(?:access[_-]?|refresh[_-]?)?token|password|secret|authorization)"
+_SECRET_KEY = r"(?:api[_-]?key|(?:access[_-]?|refresh[_-]?)?token|password|secret|(?:proxy[-_])?authorization)"
 _SECRET_FIELD = re.compile(_SECRET_KEY, re.IGNORECASE)
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)(\b" + _SECRET_KEY + r"\b[\"']?\s*[:=]\s*)"
@@ -22,6 +22,14 @@ _SECRET_ASSIGNMENT = re.compile(
 
 def redact(text: str) -> str:
     """Redact known credential forms; this is not a general secret/DLP detector."""
+    # Authorization is a header with a scheme and often multiple credential
+    # components (Basic, Digest, AWS4-HMAC-SHA256, etc.). Redacting only the
+    # first whitespace-delimited word leaves the actual credentials behind.
+    # Mask the full header value before generic assignment masking.
+    text = re.sub(
+        r"(?im)(\b(?:proxy[-_])?authorization[ \t]*:[ \t]*)[^\r\n]+",
+        r"\1[REDACTED]", text,
+    )
     text = re.sub(r"\bsk-[A-Za-z0-9_-]{12,}", "[REDACTED]", text)
     text = re.sub(r"(?i)(\bbearer\s+)[^\s,;\"'{}\\]+", r"\1[REDACTED]", text)
 
