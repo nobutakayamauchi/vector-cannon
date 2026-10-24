@@ -27,7 +27,7 @@ def redact(text: str) -> str:
     # first whitespace-delimited word leaves the actual credentials behind.
     # Mask the full header value before generic assignment masking.
     text = re.sub(
-        r"(?im)(\b(?:proxy[-_])?authorization[ \t]*:[ \t]*)[^\r\n]+",
+        r"(?im)(\b(?:proxy[-_])?authorization[ \t]*[:=][ \t]*)[^\r\n]+",
         r"\1[REDACTED]", text,
     )
     text = re.sub(r"\bsk-[A-Za-z0-9_-]{12,}", "[REDACTED]", text)
