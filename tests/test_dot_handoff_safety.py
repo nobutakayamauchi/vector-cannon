@@ -303,6 +303,7 @@ def test_known_secret_redaction_is_idempotent(text):
     ("Authorization: AWS4-HMAC-SHA256 Credential=FIXTURE123, SignedHeaders=host, Signature=FIXTURE987",
      "FIXTURE987"),
     ("Proxy-Authorization: Negotiate FIXTUREtoken987", "FIXTUREtoken987"),
+    ("Authorization=Basic FIXTUREassignment123", "FIXTUREassignment123"),
 ])
 def test_multicomponent_authorization_header_is_redacted_from_handoff(tmp_path, header, secret):
     """A header scheme is not itself the credential; never leak the value behind it."""
