@@ -12,7 +12,7 @@ from test_dot_supervisor import ChoiceJudge, RecordingAgent, contract_payload
 from vector_cannon.outcome.engine import OutcomeEngine
 from vector_cannon.outcome.model import Contract, ControlError, canonical, digest
 from vector_cannon.outcome.supervisor import build_dot_handoff, load_handoff
-from vector_cannon.outcome.verify import decision_input, redact, verify
+from vector_cannon.outcome.verify import decision_input, redact, redact_value, verify
 
 
 def make_engine(tmp_path, *, policy="redacted_evidence", roles=(), goal=None, content="ready\n"):
@@ -296,3 +296,32 @@ def test_unsafe_pre_fix_handoff_requires_rebuild_instead_of_disclosure(tmp_path)
 ])
 def test_known_secret_redaction_is_idempotent(text):
     assert redact(redact(text)) == redact(text)
+
+
+@pytest.mark.parametrize("header,secret", [
+    ("Authorization: Basic ZHVtbXk6ZHVtbXk=", "ZHVtbXk6ZHVtbXk="),
+    ("Authorization: AWS4-HMAC-SHA256 Credential=FIXTURE123, SignedHeaders=host, Signature=FIXTURE987",
+     "FIXTURE987"),
+    ("Proxy-Authorization: Negotiate FIXTUREtoken987", "FIXTUREtoken987"),
+])
+def test_multicomponent_authorization_header_is_redacted_from_handoff(tmp_path, header, secret):
+    """A header scheme is not itself the credential; never leak the value behind it."""
+    engine, _, _ = make_engine(
+        tmp_path, goal="Review " + header, content="ready\n" + header + "\npublic next line\n"
+    )
+    report = engine.run()
+    assert report["state"] == "DOT_HANDOFF", report
+    state = engine.store.load()
+    payload = load_handoff(engine.store, state)
+    assert secret not in canonical(payload)
+    assert "[REDACTED]" in payload["goal"]
+    assert "[REDACTED]" in payload["checks"][0]["excerpt"]
+    assert "public next line" in payload["checks"][0]["excerpt"]
+    assert header in state["contract"]["goal"]  # source contract is immutable
+    for kind in ("json", "markdown"):
+        assert secret not in Path(report["handoff"][kind]).read_text()
+
+
+def test_proxy_authorization_structured_field_is_redacted():
+    source = {"proxy-authorization": "Basic FIXTUREcredential123", "safe": True}
+    assert redact_value(source) == {"proxy-authorization": "[REDACTED]", "safe": True}
