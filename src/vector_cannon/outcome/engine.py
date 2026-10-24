@@ -17,8 +17,12 @@ from .verify import verify
 def git(root: Path, *args: str) -> bytes:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+    # Controller-owned snapshots must not start housekeeping that can mutate .git
+    # after this command returns and race the independent worker-tamper check.
+    # Command-scoped overrides leave user/system/repository configuration intact.
     cmd = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
-           "-c", "core.autocrlf=false", "-C", str(root), *args]
+           "-c", "core.autocrlf=false", "-c", "maintenance.auto=false",
+           "-c", "gc.auto=0", "-C", str(root), *args]
     result = subprocess.run(cmd, capture_output=True, env=env, timeout=30)
     if result.returncode:
         raise ControlError("LOCAL_GIT_OPERATION_FAILED")
@@ -104,7 +108,14 @@ class OutcomeEngine:
             state.update(phase="HUMAN_REQUIRED", reason=reason)
             self.store.save(state, "HUMAN_SUPERVISOR_REQUIRED")
             return
+        if contract.payload["data_policy"] != "redacted_evidence":
+            self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
+            return
+        if state["phase"] != "HANDOFF_PENDING":
+            state.update(phase="HANDOFF_PENDING", reason=reason, handoff_reason=reason)
+            self.store.save(state, "DOT_HANDOFF_PENDING")
         handoff = build_dot_handoff(self.store, state, contract, reason=reason)
+        state.pop("handoff_reason", None)
         state["handoff"] = handoff
         state.update(phase="DOT_HANDOFF", reason=reason)
         self.store.save(state, "DOT_HANDOFF_CREATED")
@@ -197,6 +208,9 @@ class OutcomeEngine:
             state.update(phase="LIMIT_REACHED", reason=f"{role.upper()}_CALL_LIMIT")
             self.store.save(state, "DECISION_CALL_LIMIT")
             return
+        if contract.payload["data_policy"] != "redacted_evidence":
+            self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
+            return
         if not self._role_available(state, contract, role):
             if role == "jev" and self._role_available(state, contract, "sol"):
                 state.update(phase="JUDGE", next_role="sol", reason="JEV_UNAVAILABLE_ESCALATED")
@@ -208,9 +222,6 @@ class OutcomeEngine:
                 self.store.save(state, "DECISION_TIER_SKIPPED")
             else:
                 self._stop(state, "HUMAN_REQUIRED", "DECISION_ROLE_NOT_CONFIGURED:" + role)
-            return
-        if contract.payload["data_policy"] != "redacted_evidence":
-            self._stop(state, "HUMAN_REQUIRED", "EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
             return
         self._snapshot(state)
         evidence = state["evidence"]
@@ -325,11 +336,16 @@ class OutcomeEngine:
                     elif state["phase"] == "JUDGE":
                         self._judge(state, contract)
                         operations += 1
+                    elif state["phase"] == "HANDOFF_PENDING":
+                        self._dot_handoff(state, contract, state["handoff_reason"])
                     elif state["phase"] == "SEAL":
                         self._seal(state, contract)
                     else:
                         return self._stop(state, "HUMAN_REQUIRED", "INTERRUPTED_CHECKPOINT_REQUIRES_RECONCILIATION")
             except (ControlError, OSError, ValueError, subprocess.SubprocessError) as exc:
+                if isinstance(exc, OSError) and state["phase"] == "HANDOFF_PENDING":
+                    # Only local publication is retried; the durable checkpoint skips judges/workers.
+                    return self._stop(state, "HANDOFF_PENDING", "DOT_HANDOFF_IO_RETRY_REQUIRED")
                 # A timeout or broken connection can still have billed/executed remotely.
                 reason = str(exc) if isinstance(exc, ControlError) else type(exc).__name__
                 phase = "HUMAN_REQUIRED" if state["in_flight"] else "BLOCKED"

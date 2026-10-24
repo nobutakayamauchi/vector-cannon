@@ -6,13 +6,18 @@ instruction and can never override controller verification.
 """
 from __future__ import annotations
 
+import os
+import stat
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from .model import Contract, ControlError, canonical, digest, strict_json
 from .store import Store
+from .verify import decision_input, redact_value
 
 SUPERVISOR_ACTIONS = {"ACCEPT", "REPAIR", "HUMAN_REQUIRED"}
+MAX_HANDOFF_BYTES = 64000
 
 
 def _remaining(state: dict, contract: Contract) -> dict:
@@ -26,75 +31,131 @@ def _remaining(state: dict, contract: Contract) -> dict:
     }
 
 
+def _handoff_directory(store: Store, *, create: bool = False) -> Path:
+    directory = store.directory / "handoff"
+    if directory.is_symlink():
+        raise ControlError("DOT_HANDOFF_PATH_INVALID")
+    if create:
+        directory.mkdir(exist_ok=True, mode=0o700)
+    if not directory.is_dir() or directory.resolve() != directory:
+        raise ControlError("DOT_HANDOFF_PATH_INVALID")
+    return directory
+
+
+def _read_artifact(path: Path) -> bytes | None:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ControlError("DOT_HANDOFF_PATH_INVALID") from exc
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_mode & 0o077 or info.st_size > MAX_HANDOFF_BYTES):
+            raise ControlError("DOT_HANDOFF_ARTIFACT_INVALID")
+        content = stream.read(MAX_HANDOFF_BYTES + 1)
+        if len(content) > MAX_HANDOFF_BYTES:
+            raise ControlError("DOT_HANDOFF_TOO_LARGE")
+        return content
+
+
+def _publish_matching(path: Path, content: bytes):
+    """Publish complete 0600 files without overwriting conflicts; exact retries are safe."""
+    existing = _read_artifact(path)
+    if existing is not None:
+        if existing != content:
+            raise ControlError("DOT_HANDOFF_CONTENT_MISMATCH")
+        return
+    fd, name = tempfile.mkstemp(prefix=".dot-handoff-", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            pass  # Another publisher must still have produced exactly the same artifact.
+    finally:
+        temporary.unlink(missing_ok=True)
+    if _read_artifact(path) != content:
+        raise ControlError("DOT_HANDOFF_CONTENT_MISMATCH")
+
+
 def build_dot_handoff(store: Store, state: dict, contract: Contract, *, reason: str) -> dict:
+    if contract.payload["data_policy"] != "redacted_evidence":
+        raise ControlError("EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
     evidence = state.get("evidence") or {}
-    if not evidence.get("hash") or evidence.get("contract_hash") != contract.hash:
+    evidence_body = {k: v for k, v in evidence.items() if k != "hash"}
+    if (not evidence.get("hash") or evidence.get("contract_hash") != contract.hash
+            or evidence.get("snapshot_hash") != state["snapshot_hash"]
+            or evidence.get("revision") != state["candidate_revision"]
+            or digest(evidence_body) != evidence["hash"]):
         raise ControlError("DOT_HANDOFF_REQUIRES_CURRENT_EVIDENCE")
-    checks = [
-        {
-            "id": item.get("id"),
-            "kind": item.get("kind"),
-            "status": item.get("status"),
-            "detail": item.get("detail"),
-            "artifact_sha256": item.get("artifact_sha256"),
-        }
-        for item in evidence.get("checks", [])
-        if isinstance(item, dict)
-    ]
-    handoff = {
+    review = decision_input(contract, evidence)
+    handoff = redact_value({
         "schema": 1,
         "intended_supervisor": "chatgpt-dot",
         "identity_assurance": "NO_DOT_API_OR_CRYPTOGRAPHIC_IDENTITY_ATTESTATION",
         "mission_id": contract.payload["id"],
-        "goal": contract.payload["goal"],
+        "goal": review["goal"],
+        "criteria": review["criteria"],
         "contract_hash": contract.hash,
         "evidence_hash": evidence["hash"],
         "candidate_revision": state["candidate_revision"],
         "snapshot_hash": state["snapshot_hash"],
         "reason": reason,
-        "checks": checks,
+        "checks": review["facts"],
         "prior_decisions": list(state.get("decisions") or []),
         "calls": dict(state["calls"]),
         "remaining": _remaining(state, contract),
         "allowed_actions": sorted(SUPERVISOR_ACTIONS),
         "rules": [
             "Do not claim work is complete from an agent summary.",
+            "Inspect criteria and artifact excerpts, not merely PASS metadata.",
+            "Excerpts are bounded and may be redacted or absent; insufficient evidence requires HUMAN_REQUIRED.",
             "ACCEPT is meaningful only when every controller check is PASS; the controller enforces this.",
             "REPAIR may refine the next attempt but cannot expand scope, permissions, budget, or acceptance criteria.",
             "Use HUMAN_REQUIRED when business intent, authorization, or risk cannot be resolved safely.",
             "This handoff does not authorize deployment, messaging, payment, publishing, or account changes.",
         ],
-    }
+    })
     handoff["handoff_hash"] = digest(handoff)
-
-    directory = store.directory / "handoff"
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    stem = f"dot-r{state['candidate_revision']:04d}-{evidence['hash'][:12]}"
-    json_path = directory / f"{stem}.json"
-    md_path = directory / f"{stem}.md"
-    if json_path.exists() or md_path.exists():
-        raise ControlError("DOT_HANDOFF_ALREADY_EXISTS")
-    json_path.write_text(canonical(handoff) + "\n", encoding="utf-8")
-    json_path.chmod(0o600)
-
+    json_bytes = (canonical(handoff) + "\n").encode("utf-8")
     rows = "\n".join(
         f"- {item['id']}: {item['status']} — {item.get('detail') or 'no detail'}"
-        for item in checks
+        for item in handoff["checks"]
     )
-    md_path.write_text(
+    markdown = (
         "# Vector Cannon → dot handoff\n\n"
-        f"Mission: **{contract.payload['id']}**\n\n"
-        f"Reason: `{reason}`\n\n"
-        f"Evidence hash: `{evidence['hash']}`\n\n"
+        f"Mission: **{handoff['mission_id']}**\n\n"
+        f"Goal: {handoff['goal']}\n\n"
+        f"Reason: `{handoff['reason']}`\n\n"
+        f"Evidence hash: `{handoff['evidence_hash']}`\n\n"
         "## Controller checks\n"
         f"{rows or '- No checks present'}\n\n"
+        "Read the paired JSON criteria and bounded artifact excerpts before deciding. "
+        "PASS alone is not semantic proof. Missing, truncated, or redacted evidence may require HUMAN_REQUIRED.\n\n"
         "## Return contract\n"
         "Return a JSON decision with exactly: `schema`, `handoff_hash`, `evidence_hash`, "
         "`action`, `summary`. `action` must be `ACCEPT`, `REPAIR`, or `HUMAN_REQUIRED`. "
-        "The controller will reject stale or scope-expanding decisions.\n",
-        encoding="utf-8",
-    )
-    md_path.chmod(0o600)
+        "The controller will reject stale or scope-expanding decisions.\n"
+    ).encode("utf-8")
+    if max(len(json_bytes), len(markdown)) > MAX_HANDOFF_BYTES:
+        raise ControlError("DOT_HANDOFF_TOO_LARGE")
+
+    directory = _handoff_directory(store, create=True)
+    stem = f"dot-r{state['candidate_revision']:04d}-{evidence['hash'][:12]}"
+    json_path, md_path = directory / f"{stem}.json", directory / f"{stem}.md"
+    _publish_matching(json_path, json_bytes)
+    _publish_matching(md_path, markdown)
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     return {
         "kind": "DOT_HANDOFF",
         "json": str(json_path),
@@ -109,19 +170,34 @@ def build_dot_handoff(store: Store, state: dict, contract: Contract, *, reason: 
 def load_handoff(store: Store, state: dict) -> dict:
     if state.get("phase") != "DOT_HANDOFF":
         raise ControlError("DOT_HANDOFF_NOT_CURRENT")
+    contract = Contract.parse(state["contract"])
+    if contract.payload["data_policy"] != "redacted_evidence":
+        raise ControlError("EXTERNAL_EVIDENCE_NOT_AUTHORIZED")
     ref = state.get("handoff")
     if not isinstance(ref, dict) or ref.get("kind") != "DOT_HANDOFF":
         raise ControlError("DOT_HANDOFF_NOT_AVAILABLE")
+    directory = _handoff_directory(store)
     path = Path(ref["json"])
-    if path.is_symlink() or path.resolve().parent != (store.directory / "handoff").resolve():
+    if path.parent != directory:
         raise ControlError("DOT_HANDOFF_PATH_INVALID")
-    payload = strict_json(path.read_text(encoding="utf-8"))
+    content = _read_artifact(path)
+    if content is None:
+        raise ControlError("DOT_HANDOFF_NOT_AVAILABLE")
+    payload = strict_json(content.decode("utf-8"))
     if not isinstance(payload, dict) or payload.get("handoff_hash") != ref.get("handoff_hash"):
         raise ControlError("DOT_HANDOFF_IDENTITY_MISMATCH")
     copy = dict(payload)
     supplied_hash = copy.pop("handoff_hash", None)
     if digest(copy) != supplied_hash:
         raise ControlError("DOT_HANDOFF_CHANGED")
+    if not payload.get("criteria") or redact_value(payload) != payload:
+        raise ControlError("DOT_HANDOFF_REBUILD_REQUIRED")
+    evidence = state.get("evidence") or {}
+    if (payload.get("contract_hash") != contract.hash
+            or payload.get("evidence_hash") != evidence.get("hash")
+            or payload.get("snapshot_hash") != state["snapshot_hash"]
+            or payload.get("candidate_revision") != state["candidate_revision"]):
+        raise ControlError("DOT_HANDOFF_REQUIRES_CURRENT_EVIDENCE")
     return payload
 
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .model import Contract, ControlError, MAX_FILE, canonical, inside, manifest, money, number, strict_json
-from .verify import decision_input, redact
+from .verify import decision_input, redact, redact_value
 
 ACTIONS = {"ACCEPT": "All requirements are supported by the supplied controller evidence.",
            "REPAIR": "The candidate needs another bounded repair of the original task.",
@@ -144,7 +144,10 @@ class CodexAgent:
         claim = None
         if response.is_file() and not response.is_symlink() and response.stat().st_size < 65536:
             try:
-                claim = strict_json(redact(response.read_text()))
+                # Parse before redacting values. Masking a raw JSON string can
+                # consume syntax after an Authorization header and silently lose
+                # a genuine worker status=blocked claim.
+                claim = redact_value(strict_json(response.read_text(encoding="utf-8")))
             except ValueError:
                 pass
         return {"kind": "CODEX_CLI_ATTEMPT", "state": "RETURNED", "execution": execution,
